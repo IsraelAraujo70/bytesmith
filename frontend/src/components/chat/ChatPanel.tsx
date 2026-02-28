@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Flame } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { MessageBubble } from './MessageBubble';
 import { ToolCallCard } from './ToolCallCard';
@@ -25,7 +25,14 @@ export function ChatPanel() {
   return (
     <div className="flex flex-col h-full">
       {/* Messages area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto py-3">
+        {timeline.length === 0 && !loading && (
+          <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)] text-xs">
+            <Flame className="w-5 h-5 mb-2 opacity-30" />
+            <span>Start a conversation...</span>
+          </div>
+        )}
+
         {timeline.map((item, i) => (
           <TimelineItemRenderer key={itemKey(item, i)} item={item} />
         ))}
@@ -35,12 +42,12 @@ export function ChatPanel() {
 
         {/* Loading indicator */}
         {loading && (
-          <div className="flex items-center gap-2 px-7 py-3">
-            <div className="w-7 h-7 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center">
-              <Loader2 className="w-4 h-4 text-[var(--accent)] animate-spin" />
+          <div className="flex items-center gap-2.5 px-5 py-3 animate-fade-in">
+            <div className="w-6 h-6 rounded-md bg-[var(--accent-muted)] flex items-center justify-center">
+              <Loader2 className="w-3.5 h-3.5 text-[var(--accent)] animate-spin" />
             </div>
-            <span className="text-xs text-[var(--text-secondary)]">
-              Agent is thinking...
+            <span className="text-[11px] text-[var(--text-muted)] animate-pulse-ember">
+              Forging response...
             </span>
           </div>
         )}

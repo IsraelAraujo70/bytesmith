@@ -23,6 +23,16 @@ export interface SessionListItem {
   updatedAt: string;
 }
 
+export interface SessionModelInfo {
+  modelId: string;
+  name: string;
+}
+
+export interface SessionModelsInfo {
+  currentModelId: string;
+  models: SessionModelInfo[];
+}
+
 export interface MessageInfo {
   role: 'user' | 'agent' | 'system';
   content: string;
@@ -106,6 +116,13 @@ export interface AgentErrorEvent {
   connectionId: string;
   sessionId: string;
   error: string;
+}
+
+export interface AgentModelsEvent {
+  connectionId: string;
+  sessionId: string;
+  currentModelId: string;
+  models: SessionModelInfo[];
 }
 
 // Timeline item is a union for rendering chat + tool calls in order

@@ -116,6 +116,18 @@ type PermissionOptionInfo struct {
 	Kind     string `json:"kind"`
 }
 
+// SessionModelInfo is one available model option for a session.
+type SessionModelInfo struct {
+	ModelID string `json:"modelId"`
+	Name    string `json:"name"`
+}
+
+// SessionModelsInfo contains model selection state for a session.
+type SessionModelsInfo struct {
+	CurrentModelID string             `json:"currentModelId"`
+	Models         []SessionModelInfo `json:"models"`
+}
+
 // ---------------------------------------------------------------------------
 // App – the main Wails-bound struct
 // ---------------------------------------------------------------------------
@@ -132,6 +144,10 @@ type App struct {
 	fs       *bfs.Provider
 	terminal *terminal.Provider
 	sessions *session.Store
+
+	// sessionModels stores model options returned by session/new per session.
+	sessionModels   map[string]SessionModelsInfo
+	sessionModelsMu sync.RWMutex
 
 	// pendingPermissions stores channels keyed by connectionID. When the
 	// agent sends a requestPermission request the handler creates a channel,
@@ -153,6 +169,7 @@ func NewApp() *App {
 	return &App{
 		pendingPermissions: make(map[string]chan string),
 		activePrompts:      make(map[string]context.CancelFunc),
+		sessionModels:      make(map[string]SessionModelsInfo),
 	}
 }
 
@@ -301,14 +318,41 @@ func (a *App) NewSession(connectionID, cwd string) (string, error) {
 		return "", fmt.Errorf("connection %q not found", connectionID)
 	}
 
-	sessionID, err := conn.Client.NewSession(context.Background(), cwd, nil)
+	result, err := conn.Client.NewSession(context.Background(), cwd, nil)
 	if err != nil {
 		return "", err
 	}
+	sessionID := result.SessionID
 
 	// Track session locally.
 	a.sessions.Create(sessionID, conn.Agent.Name, connectionID, cwd)
 	conn.Sessions = append(conn.Sessions, sessionID)
+
+	if result.Models != nil {
+		models := make([]SessionModelInfo, 0, len(result.Models.AvailableModels))
+		for _, m := range result.Models.AvailableModels {
+			models = append(models, SessionModelInfo{
+				ModelID: m.ModelID,
+				Name:    m.Name,
+			})
+		}
+
+		info := SessionModelsInfo{
+			CurrentModelID: result.Models.CurrentModelID,
+			Models:         models,
+		}
+
+		a.sessionModelsMu.Lock()
+		a.sessionModels[sessionID] = info
+		a.sessionModelsMu.Unlock()
+
+		wailsRuntime.EventsEmit(a.ctx, "agent:models", map[string]interface{}{
+			"connectionId":   connectionID,
+			"sessionId":      sessionID,
+			"currentModelId": info.CurrentModelID,
+			"models":         info.Models,
+		})
+	}
 
 	return sessionID, nil
 }
@@ -442,6 +486,56 @@ func (a *App) ListSessions() []SessionListItem {
 		})
 	}
 	return result
+}
+
+// GetSessionModels returns the known model selection info for a session.
+func (a *App) GetSessionModels(sessionID string) *SessionModelsInfo {
+	a.sessionModelsMu.RLock()
+	defer a.sessionModelsMu.RUnlock()
+
+	info, ok := a.sessionModels[sessionID]
+	if !ok {
+		return nil
+	}
+
+	copyModels := make([]SessionModelInfo, len(info.Models))
+	copy(copyModels, info.Models)
+
+	result := info
+	result.Models = copyModels
+	return &result
+}
+
+// SetSessionModel updates the current model for a session, when supported by
+// the agent, using session/set_config_option with configId "model".
+func (a *App) SetSessionModel(connectionID, sessionID, modelID string) error {
+	conn := a.manager.GetConnection(connectionID)
+	if conn == nil {
+		return fmt.Errorf("connection %q not found", connectionID)
+	}
+
+	if err := conn.Client.SetConfigOption(context.Background(), sessionID, "model", modelID); err != nil {
+		return err
+	}
+
+	a.sessionModelsMu.Lock()
+	info, ok := a.sessionModels[sessionID]
+	if ok {
+		info.CurrentModelID = modelID
+		a.sessionModels[sessionID] = info
+	}
+	a.sessionModelsMu.Unlock()
+
+	if ok {
+		wailsRuntime.EventsEmit(a.ctx, "agent:models", map[string]interface{}{
+			"connectionId":   connectionID,
+			"sessionId":      sessionID,
+			"currentModelId": modelID,
+			"models":         info.Models,
+		})
+	}
+
+	return nil
 }
 
 // ---------------------------------------------------------------------------

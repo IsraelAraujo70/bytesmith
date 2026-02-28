@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { clsx } from 'clsx';
-import { Send, Square } from 'lucide-react';
+import { Send, Square, Flame } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { sendPrompt, cancelPrompt } from '../../lib/api';
 import type { AvailableCommand } from '../../types';
@@ -30,8 +30,7 @@ export function PromptInput() {
     el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
   }, [text]);
 
-  // Reset command list when changing session. Real commands are provided by
-  // agent:commands events from the backend.
+  // Reset command list when changing session
   useEffect(() => {
     setCommands([]);
   }, [activeSession, setCommands]);
@@ -43,7 +42,6 @@ export function PromptInput() {
   const handleTextChange = (value: string) => {
     setText(value);
 
-    // Detect slash command trigger
     if (value.startsWith('/')) {
       setShowSlash(true);
       setSlashFilter(value);
@@ -60,7 +58,6 @@ export function PromptInput() {
     setText('');
     setShowSlash(false);
 
-    // Add user message to store
     addMessage({
       role: 'user',
       content,
@@ -69,7 +66,6 @@ export function PromptInput() {
 
     setLoading(true);
 
-    // Send to backend
     sendPrompt(
       activeSession.connectionID,
       activeSession.sessionID,
@@ -131,29 +127,29 @@ export function PromptInput() {
   const disabled = !activeSession;
 
   return (
-    <div className="relative border-t border-[var(--border)] bg-[var(--bg-secondary)]">
+    <div className="relative border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
       {/* Slash command autocomplete */}
       {showSlash && filteredCommands.length > 0 && (
-        <div className="absolute bottom-full left-4 right-4 mb-1 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden max-h-[200px] overflow-y-auto">
+        <div className="absolute bottom-full left-4 right-4 mb-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-md shadow-elevated overflow-hidden max-h-[200px] overflow-y-auto animate-fade-in">
           {filteredCommands.map((cmd, i) => (
             <button
               key={cmd.name}
               onClick={() => selectCommand(cmd)}
               className={clsx(
-                'w-full flex items-center gap-3 px-3 py-2 text-left transition-colors',
+                'w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors',
                 i === selectedIdx
-                  ? 'bg-[var(--accent)] bg-opacity-20'
-                  : 'hover:bg-[var(--bg-secondary)]'
+                  ? 'bg-[var(--accent-muted)] text-[var(--accent)]'
+                  : 'hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
               )}
             >
-              <span className="text-sm font-mono text-[var(--accent)]">
+              <span className="text-xs font-mono text-[var(--accent)]">
                 {cmd.name}
               </span>
-              <span className="text-xs text-[var(--text-secondary)] truncate">
+              <span className="text-[11px] text-[var(--text-muted)] truncate">
                 {cmd.description}
               </span>
               {cmd.hint && (
-                <span className="ml-auto text-[10px] text-[var(--text-secondary)] opacity-50">
+                <span className="ml-auto text-[9px] text-[var(--text-muted)] opacity-40 font-mono">
                   {cmd.hint}
                 </span>
               )}
@@ -174,40 +170,44 @@ export function PromptInput() {
             disabled
               ? 'Connect to an agent to start...'
               : loading
-              ? 'Agent is thinking...'
+              ? 'Forging response...'
               : 'Type a message... (/ for commands)'
           }
           rows={1}
           className={clsx(
-            'flex-1 resize-none bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl px-4 py-2.5 text-sm',
-            'text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]',
-            'focus:outline-none focus:border-[var(--accent)] transition-colors',
-            'min-h-[40px] max-h-[192px]',
-            disabled && 'opacity-50 cursor-not-allowed'
+            'flex-1 resize-none bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-lg px-3.5 py-2 text-sm',
+            'text-[var(--text-primary)] placeholder:text-[var(--text-muted)]',
+            'focus:outline-none focus:border-[var(--accent)] focus:shadow-glow-sm transition-all duration-200',
+            'min-h-[38px] max-h-[192px]',
+            disabled && 'opacity-40 cursor-not-allowed'
           )}
         />
 
         {loading ? (
           <button
             onClick={handleCancel}
-            className="shrink-0 w-10 h-10 flex items-center justify-center rounded-xl bg-[var(--error)] bg-opacity-20 text-[var(--error)] hover:bg-opacity-30 transition-colors"
+            className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-[var(--error-muted)] text-[var(--error)] hover:bg-[var(--error)] hover:text-white transition-all duration-200"
             title="Cancel"
           >
-            <Square className="w-4 h-4" />
+            <Square className="w-3.5 h-3.5" />
           </button>
         ) : (
           <button
             onClick={handleSubmit}
             disabled={!text.trim() || disabled}
             className={clsx(
-              'shrink-0 w-10 h-10 flex items-center justify-center rounded-xl transition-colors',
+              'shrink-0 w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-200',
               text.trim() && !disabled
-                ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)]'
-                : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] cursor-not-allowed'
+                ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] shadow-glow-sm hover:shadow-glow'
+                : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] cursor-not-allowed'
             )}
             title="Send"
           >
-            <Send className="w-4 h-4" />
+            {text.trim() && !disabled ? (
+              <Flame className="w-3.5 h-3.5" />
+            ) : (
+              <Send className="w-3.5 h-3.5" />
+            )}
           </button>
         )}
       </div>

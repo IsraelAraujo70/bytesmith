@@ -2,20 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Theme Variables (defaults = Forge theme) ──────────────── */
+/* These are overridden at runtime by applyTheme() in themes.ts  */
 :root {
-  --bg-primary: #0f1117;
-  --bg-secondary: #1a1d27;
-  --bg-tertiary: #242833;
-  --text-primary: #e4e4e7;
-  --text-secondary: #a1a1aa;
-  --accent: #6366f1;
-  --accent-hover: #818cf8;
-  --border: #2e3345;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --error: #ef4444;
+  /* Backgrounds */
+  --bg-primary: #0c0b0a;
+  --bg-secondary: #141210;
+  --bg-tertiary: #1c1916;
+  --bg-elevated: #231f1b;
+
+  /* Text */
+  --text-primary: #e8e4df;
+  --text-secondary: #9a9590;
+  --text-muted: #6b6560;
+
+  /* Accent */
+  --accent: #e07a2f;
+  --accent-hover: #f0943e;
+  --accent-muted: #e07a2f26;
+  --accent-glow: #e07a2f40;
+
+  /* Borders */
+  --border: #2a2521;
+  --border-subtle: #1f1c19;
+
+  /* Semantic */
+  --success: #4ade80;
+  --success-muted: #4ade8020;
+  --warning: #fbbf24;
+  --warning-muted: #fbbf2420;
+  --error: #f87171;
+  --error-muted: #f8717120;
+  --info: #60a5fa;
+  --info-muted: #60a5fa20;
 }
 
+/* ─── Reset ─────────────────────────────────────────────────── */
 * {
   margin: 0;
   padding: 0;
@@ -36,10 +58,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar styling */
+/* ─── Scrollbar (thin, warm) ────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -48,32 +70,64 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 3px;
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
+  background: var(--text-muted);
 }
 
-/* Wails drag region */
+/* ─── Wails drag region ─────────────────────────────────────── */
 .wails-drag {
   --wails-draggable: drag;
 }
 
-/* Markdown content styling */
+/* ─── Selection ─────────────────────────────────────────────── */
+::selection {
+  background: var(--accent-muted);
+  color: var(--text-primary);
+}
+
+/* ─── Focus ring (Zed-style subtle glow) ────────────────────── */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent), 0 0 8px var(--accent-glow);
+}
+
+/* ─── Ember glow utility ────────────────────────────────────── */
+.glow-accent {
+  box-shadow: 0 0 12px var(--accent-glow), 0 0 4px var(--accent-muted);
+}
+
+.glow-accent-sm {
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+
+/* ─── Surface hover utility (Zed flat style) ────────────────── */
+.surface-hover {
+  transition: background-color 120ms ease;
+}
+
+.surface-hover:hover {
+  background-color: var(--bg-tertiary);
+}
+
+/* ─── Markdown content ──────────────────────────────────────── */
 .markdown-content pre {
   margin: 0.5rem 0;
-  border-radius: 0.5rem;
+  border-radius: 0.375rem;
   overflow-x: auto;
+  border: 1px solid var(--border-subtle);
 }
 
 .markdown-content code {
-  font-size: 0.85em;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 0.82em;
 }
 
 .markdown-content p {
   margin-bottom: 0.5rem;
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
 .markdown-content p:last-child {
@@ -99,26 +153,101 @@ body {
 .markdown-content th,
 .markdown-content td {
   border: 1px solid var(--border);
-  padding: 0.5rem;
+  padding: 0.5rem 0.75rem;
   text-align: left;
+  font-size: 0.85em;
 }
 
 .markdown-content th {
   background: var(--bg-tertiary);
+  font-weight: 600;
 }
 
 .markdown-content blockquote {
-  border-left: 3px solid var(--accent);
+  border-left: 2px solid var(--accent);
   padding-left: 1rem;
   margin: 0.5rem 0;
   color: var(--text-secondary);
 }
 
-/* Animation for spinning loader */
+.markdown-content a {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.markdown-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1rem 0;
+}
+
+/* ─── Animations ────────────────────────────────────────────── */
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
+@keyframes pulse-ember {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 4px var(--accent-glow); }
+  50% { box-shadow: 0 0 12px var(--accent-glow), 0 0 4px var(--accent-muted); }
+}
+
 .animate-spin {
   animation: spin 1s linear infinite;
+}
+
+.animate-pulse-ember {
+  animation: pulse-ember 2s ease-in-out infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in 200ms ease-out;
+}
+
+.animate-slide-up {
+  animation: slide-up 300ms ease-out;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* ─── Diff view (tool call content) ─────────────────────────── */
+.diff-add {
+  color: var(--success);
+  background: var(--success-muted);
+}
+
+.diff-del {
+  color: var(--error);
+  background: var(--error-muted);
+}
+
+.diff-hunk {
+  color: var(--accent);
 }

@@ -37,28 +37,28 @@ const kindIcons: Record<string, React.ElementType> = {
 const statusConfig = {
   pending: {
     color: 'text-[var(--warning)]',
-    bg: 'bg-[var(--warning)]',
+    borderColor: 'border-l-[var(--warning)]',
     icon: Loader2,
     label: 'Pending',
     spin: false,
   },
   in_progress: {
     color: 'text-[var(--accent)]',
-    bg: 'bg-[var(--accent)]',
+    borderColor: 'border-l-[var(--accent)]',
     icon: Loader2,
     label: 'Running',
     spin: true,
   },
   completed: {
     color: 'text-[var(--success)]',
-    bg: 'bg-[var(--success)]',
+    borderColor: 'border-l-[var(--success)]',
     icon: Check,
     label: 'Done',
     spin: false,
   },
   failed: {
     color: 'text-[var(--error)]',
-    bg: 'bg-[var(--error)]',
+    borderColor: 'border-l-[var(--error)]',
     icon: X,
     label: 'Failed',
     spin: false,
@@ -73,50 +73,58 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const StatusIcon = status.icon;
 
   const hasDiff = toolCall.content.includes('<<<') || toolCall.content.includes('---');
+  const isRunning = toolCall.status === 'in_progress';
 
   return (
-    <div className="mx-4 my-1.5">
-      <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg overflow-hidden">
+    <div className="mx-5 my-1 animate-fade-in">
+      <div
+        className={clsx(
+          'bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-md overflow-hidden transition-all duration-200',
+          'border-l-2',
+          status.borderColor,
+          isRunning && 'animate-glow-pulse'
+        )}
+      >
         {/* Header */}
         <button
           onClick={() => setExpanded(!expanded)}
-          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-tertiary)] transition-colors text-left"
+          className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-[var(--bg-tertiary)] transition-colors text-left"
         >
-          <IconComponent className="w-4 h-4 text-[var(--text-secondary)] shrink-0" />
+          <IconComponent className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
 
-          <span className="flex-1 text-xs font-medium truncate">
+          <span className="flex-1 text-[11px] font-medium truncate text-[var(--text-secondary)]">
             {toolCall.title}
           </span>
 
           {/* Status badge */}
           <div
             className={clsx(
-              'flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full',
+              'flex items-center gap-1 text-[9px] font-mono',
               status.color
             )}
           >
             <StatusIcon
-              className={clsx('w-3 h-3', status.spin && 'animate-spin')}
+              className={clsx('w-2.5 h-2.5', status.spin && 'animate-spin')}
             />
             <span>{status.label}</span>
           </div>
 
           {toolCall.content && (
             expanded ? (
-              <ChevronDown className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
+              <ChevronDown className="w-3 h-3 text-[var(--text-muted)] shrink-0" />
             ) : (
-              <ChevronRight className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
+              <ChevronRight className="w-3 h-3 text-[var(--text-muted)] shrink-0" />
             )
           )}
         </button>
 
         {/* Content */}
         {expanded && toolCall.content && (
-          <div className="border-t border-[var(--border)] px-3 py-2 max-h-[300px] overflow-auto">
+          <div className="border-t border-[var(--border-subtle)] px-2.5 py-2 max-h-[300px] overflow-auto">
             {hasDiff ? (
               <DiffView content={toolCall.content} />
             ) : (
-              <pre className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap break-words font-mono">
+              <pre className="text-[11px] text-[var(--text-secondary)] whitespace-pre-wrap break-words font-mono leading-relaxed">
                 {toolCall.content}
               </pre>
             )}
@@ -131,19 +139,19 @@ function DiffView({ content }: { content: string }) {
   const lines = content.split('\n');
 
   return (
-    <div className="text-xs font-mono">
+    <div className="text-[11px] font-mono leading-relaxed">
       {lines.map((line, i) => {
         let className = 'text-[var(--text-secondary)]';
         if (line.startsWith('+') && !line.startsWith('+++')) {
-          className = 'text-[var(--success)] bg-[var(--success)] bg-opacity-10';
+          className = 'diff-add';
         } else if (line.startsWith('-') && !line.startsWith('---')) {
-          className = 'text-[var(--error)] bg-[var(--error)] bg-opacity-10';
+          className = 'diff-del';
         } else if (line.startsWith('@@')) {
-          className = 'text-[var(--accent)]';
+          className = 'diff-hunk';
         }
 
         return (
-          <div key={i} className={clsx('px-1 whitespace-pre-wrap', className)}>
+          <div key={i} className={clsx('px-1 whitespace-pre-wrap rounded-sm', className)}>
             {line}
           </div>
         );

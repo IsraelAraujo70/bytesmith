@@ -10,6 +10,8 @@ export function DisconnectAgent(arg1:string):Promise<void>;
 
 export function GetSessionHistory(arg1:string):Promise<main.SessionHistoryInfo>;
 
+export function GetSessionModels(arg1:string):Promise<main.SessionModelsInfo>;
+
 export function GetSettings():Promise<main.AppSettingsInfo>;
 
 export function ListAvailableAgents():Promise<Array<main.AgentInfo>>;
@@ -31,3 +33,5 @@ export function SaveSettings(arg1:main.AppSettingsInfo):Promise<void>;
 export function SelectDirectory():Promise<string>;
 
 export function SendPrompt(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SetSessionModel(arg1:string,arg2:string,arg3:string):Promise<void>;

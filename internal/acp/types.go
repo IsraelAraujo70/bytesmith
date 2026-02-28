@@ -153,19 +153,48 @@ type AuthMethod struct {
 // SessionNewParams requests the agent to create a new session.
 type SessionNewParams struct {
 	CWD        string      `json:"cwd"`
-	MCPServers []MCPServer `json:"mcpServers,omitempty"`
+	MCPServers []MCPServer `json:"mcpServers"`
 }
 
 // SessionNewResult is the agent's response to a session/new request.
 type SessionNewResult struct {
-	SessionID string `json:"sessionId"`
+	SessionID string              `json:"sessionId"`
+	Models    *SessionModelsState `json:"models,omitempty"`
+	Modes     *SessionModesState  `json:"modes,omitempty"`
+	Meta      map[string]any      `json:"_meta,omitempty"`
+}
+
+// SessionModelsState represents model information returned by some agents
+// (for example OpenCode) during session setup.
+type SessionModelsState struct {
+	CurrentModelID  string         `json:"currentModelId"`
+	AvailableModels []SessionModel `json:"availableModels,omitempty"`
+}
+
+// SessionModel is one selectable model option.
+type SessionModel struct {
+	ModelID string `json:"modelId"`
+	Name    string `json:"name"`
+}
+
+// SessionModesState represents optional mode metadata returned on session/new.
+type SessionModesState struct {
+	CurrentModeID  string        `json:"currentModeId"`
+	AvailableModes []SessionMode `json:"availableModes,omitempty"`
+}
+
+// SessionMode is one available mode option.
+type SessionMode struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 }
 
 // SessionLoadParams requests the agent to reload an existing session.
 type SessionLoadParams struct {
 	SessionID  string      `json:"sessionId"`
 	CWD        string      `json:"cwd"`
-	MCPServers []MCPServer `json:"mcpServers,omitempty"`
+	MCPServers []MCPServer `json:"mcpServers"`
 }
 
 // MCPServer describes an MCP server to attach to the session.
@@ -600,6 +629,14 @@ type SessionSetModeParams struct {
 	Mode      string `json:"mode"`
 }
 
+// SessionSetConfigOptionParams requests the agent to set a session config
+// option (for example model selection).
+type SessionSetConfigOptionParams struct {
+	SessionID string `json:"sessionId"`
+	ConfigID  string `json:"configId"`
+	Value     string `json:"value"`
+}
+
 // ---------------------------------------------------------------------------
 // ACP method names (JSON-RPC method strings)
 // ---------------------------------------------------------------------------
@@ -611,6 +648,7 @@ const (
 	MethodSessionPrompt     = "session/prompt"
 	MethodSessionCancel     = "session/cancel"
 	MethodSessionSetMode    = "session/setMode"
+	MethodSessionSetConfig  = "session/set_config_option"
 	MethodSessionUpdate     = "session/update"
 	MethodRequestPermission = "requestPermission"
 	MethodFSReadTextFile    = "fs/readTextFile"

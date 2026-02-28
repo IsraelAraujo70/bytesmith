@@ -105,8 +105,13 @@ func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 	return &result, nil
 }
 
-// NewSession asks the agent to create a new session and returns the session ID.
-func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []MCPServer) (string, error) {
+// NewSession asks the agent to create a new session and returns the full
+// session/new result.
+func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []MCPServer) (*SessionNewResult, error) {
+	if mcpServers == nil {
+		mcpServers = []MCPServer{}
+	}
+
 	params := SessionNewParams{
 		CWD:        cwd,
 		MCPServers: mcpServers,
@@ -114,18 +119,22 @@ func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []MCPSer
 
 	raw, err := c.call(ctx, MethodSessionNew, params)
 	if err != nil {
-		return "", fmt.Errorf("session/new: %w", err)
+		return nil, fmt.Errorf("session/new: %w", err)
 	}
 
 	var result SessionNewResult
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return "", fmt.Errorf("session/new: unmarshal result: %w", err)
+		return nil, fmt.Errorf("session/new: unmarshal result: %w", err)
 	}
-	return result.SessionID, nil
+	return &result, nil
 }
 
 // LoadSession asks the agent to load an existing session.
 func (c *Client) LoadSession(ctx context.Context, sessionID, cwd string, mcpServers []MCPServer) error {
+	if mcpServers == nil {
+		mcpServers = []MCPServer{}
+	}
+
 	params := SessionLoadParams{
 		SessionID:  sessionID,
 		CWD:        cwd,
@@ -179,6 +188,21 @@ func (c *Client) SetMode(ctx context.Context, sessionID, mode string) error {
 	_, err := c.call(ctx, MethodSessionSetMode, params)
 	if err != nil {
 		return fmt.Errorf("session/setMode: %w", err)
+	}
+	return nil
+}
+
+// SetConfigOption asks the agent to set a session configuration option.
+func (c *Client) SetConfigOption(ctx context.Context, sessionID, configID, value string) error {
+	params := SessionSetConfigOptionParams{
+		SessionID: sessionID,
+		ConfigID:  configID,
+		Value:     value,
+	}
+
+	_, err := c.call(ctx, MethodSessionSetConfig, params)
+	if err != nil {
+		return fmt.Errorf("session/set_config_option: %w", err)
 	}
 	return nil
 }

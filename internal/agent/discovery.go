@@ -27,7 +27,7 @@ var wellKnownAgents = []wellKnownAgent{
 		DisplayName: "Codex CLI",
 		Command:     "codex-acp",
 		Args:        []string{},
-		Description: "OpenAI Codex CLI with ACP support",
+		Description: "OpenAI Codex CLI com ACP (requer binario codex-acp)",
 	},
 	{
 		Name:        "gemini",

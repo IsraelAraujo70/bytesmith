@@ -18,6 +18,10 @@ export function GetSessionHistory(arg1) {
   return window['go']['main']['App']['GetSessionHistory'](arg1);
 }
 
+export function GetSessionModels(arg1) {
+  return window['go']['main']['App']['GetSessionModels'](arg1);
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
@@ -60,4 +64,8 @@ export function SelectDirectory() {
 
 export function SendPrompt(arg1, arg2, arg3) {
   return window['go']['main']['App']['SendPrompt'](arg1, arg2, arg3);
+}
+
+export function SetSessionModel(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetSessionModel'](arg1, arg2, arg3);
 }

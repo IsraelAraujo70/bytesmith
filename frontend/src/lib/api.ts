@@ -2,6 +2,7 @@ import type {
   AgentInfo,
   ConnectionInfo,
   SessionListItem,
+  SessionModelsInfo,
   MessageInfo,
   ToolCallInfo,
   AvailableCommand,
@@ -128,6 +129,24 @@ export async function getSessionHistory(
   } catch {
     return null;
   }
+}
+
+export async function getSessionModels(
+  sessionID: string
+): Promise<SessionModelsInfo | null> {
+  try {
+    return await callWails<SessionModelsInfo | null>('GetSessionModels', sessionID);
+  } catch {
+    return null;
+  }
+}
+
+export async function setSessionModel(
+  connectionID: string,
+  sessionID: string,
+  modelID: string
+): Promise<void> {
+  await callWails<void>('SetSessionModel', connectionID, sessionID, modelID);
 }
 
 // --- Prompting ---

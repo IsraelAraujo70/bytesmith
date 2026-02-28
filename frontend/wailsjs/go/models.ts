@@ -180,6 +180,52 @@ export namespace main {
 	        this.updatedAt = source["updatedAt"];
 	    }
 	}
+	export class SessionModelInfo {
+	    modelId: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionModelInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.modelId = source["modelId"];
+	        this.name = source["name"];
+	    }
+	}
+	export class SessionModelsInfo {
+	    currentModelId: string;
+	    models: SessionModelInfo[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionModelsInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.currentModelId = source["currentModelId"];
+	        this.models = this.convertValues(source["models"], SessionModelInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 

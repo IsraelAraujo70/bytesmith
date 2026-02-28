@@ -4,12 +4,15 @@ import type {
   ConnectionInfo,
   MessageInfo,
   ToolCallInfo,
+  SessionModelInfo,
   PlanEntry,
   PermissionRequest,
   AvailableCommand,
   TimelineItem,
 } from '../types';
 import { buildTimeline } from '../lib/api';
+import { themes, defaultThemeId, applyTheme } from '../lib/themes';
+import type { ThemeDefinition } from '../lib/themes';
 
 interface ActiveSession {
   connectionID: string;
@@ -17,6 +20,11 @@ interface ActiveSession {
 }
 
 interface AppState {
+  // Theme
+  themeId: string;
+  theme: ThemeDefinition;
+  setTheme: (themeId: string) => void;
+
   // Agents
   agents: AgentInfo[];
   setAgents: (agents: AgentInfo[]) => void;
@@ -58,10 +66,19 @@ interface AppState {
   commands: AvailableCommand[];
   setCommands: (commands: AvailableCommand[]) => void;
 
+  // Session models
+  models: SessionModelInfo[];
+  currentModelId: string;
+  setSessionModels: (models: SessionModelInfo[], currentModelId: string) => void;
+
   // Permission requests
   permissionRequests: PermissionRequest[];
   addPermissionRequest: (req: PermissionRequest) => void;
   removePermissionRequest: (toolCallId: string) => void;
+
+  // Sidebar collapsed
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
 
   // Loading / processing state
   loading: boolean;
@@ -75,7 +92,32 @@ interface AppState {
   clearSession: () => void;
 }
 
+// Resolve initial theme from localStorage or default
+function getInitialTheme(): { id: string; theme: ThemeDefinition } {
+  const stored = typeof localStorage !== 'undefined'
+    ? localStorage.getItem('bytesmith-theme')
+    : null;
+  const id = stored && themes[stored] ? stored : defaultThemeId;
+  return { id, theme: themes[id] };
+}
+
+const initial = getInitialTheme();
+
+// Apply theme on load
+applyTheme(initial.theme);
+
 export const useAppStore = create<AppState>((set, get) => ({
+  // Theme
+  themeId: initial.id,
+  theme: initial.theme,
+  setTheme: (themeId) => {
+    const theme = themes[themeId];
+    if (!theme) return;
+    applyTheme(theme);
+    localStorage.setItem('bytesmith-theme', themeId);
+    set({ themeId, theme });
+  },
+
   // Agents
   agents: [],
   setAgents: (agents) => set({ agents }),
@@ -148,6 +190,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   commands: [],
   setCommands: (commands) => set({ commands }),
 
+  // Session models
+  models: [],
+  currentModelId: '',
+  setSessionModels: (models, currentModelId) => set({ models, currentModelId }),
+
   // Permission requests
   permissionRequests: [],
   addPermissionRequest: (req) =>
@@ -160,6 +207,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         (r) => r.toolCallId !== toolCallId
       ),
     })),
+
+  // Sidebar
+  sidebarCollapsed: false,
+  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
   // Loading
   loading: false,
@@ -175,6 +226,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       messages: [],
       toolCalls: [],
       plan: [],
+      models: [],
+      currentModelId: '',
       permissionRequests: [],
       loading: false,
       error: null,

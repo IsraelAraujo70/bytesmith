@@ -8,6 +8,7 @@ import type {
   AgentCommandsEvent,
   PromptDoneEvent,
   AgentErrorEvent,
+  AgentModelsEvent,
   PermissionRequest,
 } from '../types';
 
@@ -19,6 +20,7 @@ export function useWailsEvents() {
     updateToolCall,
     setPlan,
     setCommands,
+    setSessionModels,
     addPermissionRequest,
     setLoading,
     setError,
@@ -82,6 +84,17 @@ export function useWailsEvents() {
       }
     });
 
+    // Session models
+    EventsOn('agent:models', (data: AgentModelsEvent) => {
+      if (
+        !activeSession ||
+        (data.connectionId === activeSession.connectionID &&
+          data.sessionId === activeSession.sessionID)
+      ) {
+        setSessionModels(data.models, data.currentModelId);
+      }
+    });
+
     // Permission request
     EventsOn('agent:permission', (data: PermissionRequest) => {
       if (
@@ -121,6 +134,7 @@ export function useWailsEvents() {
       EventsOff('agent:toolcall');
       EventsOff('agent:plan');
       EventsOff('agent:commands');
+      EventsOff('agent:models');
       EventsOff('agent:permission');
       EventsOff('agent:prompt-done');
       EventsOff('agent:error');
@@ -132,6 +146,7 @@ export function useWailsEvents() {
     updateToolCall,
     setPlan,
     setCommands,
+    setSessionModels,
     addPermissionRequest,
     setLoading,
     setError,
