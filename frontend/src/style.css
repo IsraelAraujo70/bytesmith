@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #0f1117;
+  --bg-secondary: #1a1d27;
+  --bg-tertiary: #242833;
+  --text-primary: #e4e4e7;
+  --text-secondary: #a1a1aa;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --border: #2e3345;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Wails drag region */
+.wails-drag {
+  --wails-draggable: drag;
+}
+
+/* Markdown content styling */
+.markdown-content pre {
+  margin: 0.5rem 0;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+}
+
+.markdown-content code {
+  font-size: 0.85em;
+}
+
+.markdown-content p {
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
+}
+
+.markdown-content p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.markdown-content li {
+  margin-bottom: 0.25rem;
+}
+
+.markdown-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5rem 0;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid var(--border);
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.markdown-content th {
+  background: var(--bg-tertiary);
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 1rem;
+  margin: 0.5rem 0;
+  color: var(--text-secondary);
+}
+
+/* Animation for spinning loader */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}

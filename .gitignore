@@ -1,0 +1,29 @@
+# Build output
+build/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (may contain API keys)
+# ~/.config/bytesmith/config.json
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Go
+*.test
+*.out
+coverage.txt
