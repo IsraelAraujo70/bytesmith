@@ -9,15 +9,14 @@ export interface AgentInfo {
 export interface ConnectionInfo {
   id: string;
   agentName: string;
-  agentDisplayName: string;
+  displayName: string;
   sessions: string[];
-  running: boolean;
 }
 
 export interface SessionListItem {
   id: string;
   agentName: string;
-  connectionID: string;
+  connectionId: string;
   cwd: string;
   messageCount: number;
   createdAt: string;
@@ -46,9 +45,9 @@ export interface PlanEntry {
 }
 
 export interface PermissionRequest {
-  connectionID: string;
-  sessionID: string;
-  toolCallID: string;
+  connectionId: string;
+  sessionId: string;
+  toolCallId: string;
   title: string;
   kind: string;
   options: PermissionOption[];
@@ -66,33 +65,47 @@ export interface AvailableCommand {
   hint?: string;
 }
 
-// Events from Go backend
+// Events from Go backend — field names must match Go map keys exactly.
+// Go uses camelCase JSON keys: connectionId, sessionId, toolCallId, etc.
 export interface AgentMessageEvent {
-  connectionID: string;
-  sessionID: string;
+  connectionId: string;
+  sessionId: string;
   text: string;
+  type: string;
 }
 
 export interface AgentToolCallEvent {
-  connectionID: string;
-  sessionID: string;
-  toolCallID: string;
+  connectionId: string;
+  sessionId: string;
+  toolCallId: string;
   title: string;
   kind: string;
   status: string;
-  content: string;
+  isUpdate: boolean;
 }
 
 export interface AgentPlanEvent {
-  connectionID: string;
-  sessionID: string;
+  connectionId: string;
+  sessionId: string;
   entries: PlanEntry[];
 }
 
+export interface AgentCommandsEvent {
+  connectionId: string;
+  sessionId: string;
+  commands: AvailableCommand[];
+}
+
 export interface PromptDoneEvent {
-  connectionID: string;
-  sessionID: string;
+  connectionId: string;
+  sessionId: string;
   stopReason: string;
+}
+
+export interface AgentErrorEvent {
+  connectionId: string;
+  sessionId: string;
+  error: string;
 }
 
 // Timeline item is a union for rendering chat + tool calls in order

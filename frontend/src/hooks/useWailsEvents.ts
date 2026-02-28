@@ -5,9 +5,10 @@ import type {
   AgentMessageEvent,
   AgentToolCallEvent,
   AgentPlanEvent,
+  AgentCommandsEvent,
   PromptDoneEvent,
+  AgentErrorEvent,
   PermissionRequest,
-  AvailableCommand,
 } from '../types';
 
 export function useWailsEvents() {
@@ -28,8 +29,8 @@ export function useWailsEvents() {
     EventsOn('agent:message', (data: AgentMessageEvent) => {
       if (
         activeSession &&
-        data.connectionID === activeSession.connectionID &&
-        data.sessionID === activeSession.sessionID
+        data.connectionId === activeSession.connectionID &&
+        data.sessionId === activeSession.sessionID
       ) {
         appendToLastAgentMessage(data.text);
       }
@@ -39,24 +40,20 @@ export function useWailsEvents() {
     EventsOn('agent:toolcall', (data: AgentToolCallEvent) => {
       if (
         activeSession &&
-        data.connectionID === activeSession.connectionID &&
-        data.sessionID === activeSession.sessionID
+        data.connectionId === activeSession.connectionID &&
+        data.sessionId === activeSession.sessionID
       ) {
-        const existing = useAppStore
-          .getState()
-          .toolCalls.find((tc) => tc.id === data.toolCallID);
-        if (existing) {
-          updateToolCall(data.toolCallID, {
+        if (data.isUpdate) {
+          updateToolCall(data.toolCallId, {
             status: data.status as 'pending' | 'in_progress' | 'completed' | 'failed',
-            content: data.content,
           });
         } else {
           addToolCall({
-            id: data.toolCallID,
+            id: data.toolCallId,
             title: data.title,
             kind: data.kind,
             status: data.status as 'pending' | 'in_progress' | 'completed' | 'failed',
-            content: data.content,
+            content: '',
             timestamp: new Date().toISOString(),
           });
         }
@@ -67,24 +64,30 @@ export function useWailsEvents() {
     EventsOn('agent:plan', (data: AgentPlanEvent) => {
       if (
         activeSession &&
-        data.connectionID === activeSession.connectionID &&
-        data.sessionID === activeSession.sessionID
+        data.connectionId === activeSession.connectionID &&
+        data.sessionId === activeSession.sessionID
       ) {
         setPlan(data.entries);
       }
     });
 
     // Available commands
-    EventsOn('agent:commands', (data: { commands: AvailableCommand[] }) => {
-      setCommands(data.commands);
+    EventsOn('agent:commands', (data: AgentCommandsEvent) => {
+      if (
+        activeSession &&
+        data.connectionId === activeSession.connectionID &&
+        data.sessionId === activeSession.sessionID
+      ) {
+        setCommands(data.commands);
+      }
     });
 
     // Permission request
     EventsOn('agent:permission', (data: PermissionRequest) => {
       if (
         activeSession &&
-        data.connectionID === activeSession.connectionID &&
-        data.sessionID === activeSession.sessionID
+        data.connectionId === activeSession.connectionID &&
+        data.sessionId === activeSession.sessionID
       ) {
         addPermissionRequest(data);
       }
@@ -94,17 +97,23 @@ export function useWailsEvents() {
     EventsOn('agent:prompt-done', (data: PromptDoneEvent) => {
       if (
         activeSession &&
-        data.connectionID === activeSession.connectionID &&
-        data.sessionID === activeSession.sessionID
+        data.connectionId === activeSession.connectionID &&
+        data.sessionId === activeSession.sessionID
       ) {
         setLoading(false);
       }
     });
 
     // Error
-    EventsOn('agent:error', (data: { message: string }) => {
-      setError(data.message);
-      setLoading(false);
+    EventsOn('agent:error', (data: AgentErrorEvent) => {
+      if (
+        activeSession &&
+        data.connectionId === activeSession.connectionID &&
+        data.sessionId === activeSession.sessionID
+      ) {
+        setError(data.error);
+        setLoading(false);
+      }
     });
 
     return () => {

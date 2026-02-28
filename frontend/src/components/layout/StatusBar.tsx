@@ -1,4 +1,4 @@
-import { Bot, Folder, Wifi, WifiOff } from 'lucide-react';
+import { Folder, Wifi, WifiOff } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 
 export function StatusBar() {
@@ -15,7 +15,7 @@ export function StatusBar() {
         {activeConn ? (
           <div className="flex items-center gap-1.5">
             <Wifi className="w-3 h-3 text-[var(--success)]" />
-            <span>{activeConn.agentDisplayName}</span>
+            <span>{activeConn.displayName}</span>
           </div>
         ) : (
           <div className="flex items-center gap-1.5">

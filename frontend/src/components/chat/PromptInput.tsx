@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { clsx } from 'clsx';
-import { Send, Square, Loader2 } from 'lucide-react';
+import { Send, Square } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
-import { sendPrompt, cancelPrompt, getAvailableCommands } from '../../lib/api';
+import { sendPrompt, cancelPrompt } from '../../lib/api';
 import type { AvailableCommand } from '../../types';
 
 export function PromptInput() {
@@ -30,14 +30,10 @@ export function PromptInput() {
     el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
   }, [text]);
 
-  // Load commands when session changes
+  // Reset command list when changing session. Real commands are provided by
+  // agent:commands events from the backend.
   useEffect(() => {
-    if (activeSession) {
-      getAvailableCommands(
-        activeSession.connectionID,
-        activeSession.sessionID
-      ).then(setCommands);
-    }
+    setCommands([]);
   }, [activeSession, setCommands]);
 
   const filteredCommands = commands.filter((cmd) =>

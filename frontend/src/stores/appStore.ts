@@ -61,7 +61,7 @@ interface AppState {
   // Permission requests
   permissionRequests: PermissionRequest[];
   addPermissionRequest: (req: PermissionRequest) => void;
-  removePermissionRequest: (toolCallID: string) => void;
+  removePermissionRequest: (toolCallId: string) => void;
 
   // Loading / processing state
   loading: boolean;
@@ -154,10 +154,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       permissionRequests: [...s.permissionRequests, req],
     })),
-  removePermissionRequest: (toolCallID) =>
+  removePermissionRequest: (toolCallId) =>
     set((s) => ({
       permissionRequests: s.permissionRequests.filter(
-        (r) => r.toolCallID !== toolCallID
+        (r) => r.toolCallId !== toolCallId
       ),
     })),
 

@@ -10,7 +10,6 @@ import {
   Terminal,
   X,
   Wifi,
-  WifiOff,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAppStore } from '../../stores/appStore';
@@ -20,10 +19,11 @@ import {
   disconnectAgent,
   listConnections,
   listSessions,
+  getSessionHistory,
   createSession,
   pickDirectory,
 } from '../../lib/api';
-import type { AgentInfo, ConnectionInfo, SessionListItem } from '../../types';
+import type { ConnectionInfo, SessionListItem } from '../../types';
 
 export function Sidebar() {
   const {
@@ -36,6 +36,8 @@ export function Sidebar() {
     cwd,
     setCwd,
     clearSession,
+    setMessages,
+    setToolCalls,
     setLoading,
   } = useAppStore();
 
@@ -75,9 +77,8 @@ export function Sidebar() {
       const conn: ConnectionInfo = {
         id: connId,
         agentName: selectedAgent,
-        agentDisplayName: agent?.displayName || selectedAgent,
+        displayName: agent?.displayName || selectedAgent,
         sessions: [sessionId],
-        running: true,
       };
       setConnections([...connections, conn]);
       setActiveSession({ connectionID: connId, sessionID: sessionId });
@@ -105,9 +106,20 @@ export function Sidebar() {
     setConnSessions((prev) => ({ ...prev, [connId]: sessions }));
   };
 
-  const handleSelectSession = (connectionID: string, sessionID: string) => {
+  const handleSelectSession = async (connectionID: string, sessionID: string) => {
     setActiveSession({ connectionID, sessionID });
     clearSession();
+
+    setLoading(true);
+    try {
+      const history = await getSessionHistory(sessionID);
+      if (history) {
+        setMessages(history.messages || []);
+        setToolCalls(history.toolCalls || []);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePickDirectory = async () => {
@@ -115,7 +127,6 @@ export function Sidebar() {
     if (dir) setCwd(dir);
   };
 
-  const installedAgents = agents.filter((a) => a.installed);
   const selected = agents.find((a) => a.name === selectedAgent);
 
   return (
@@ -233,12 +244,9 @@ export function Sidebar() {
                   <ChevronRight className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
                 )}
                 <Bot className="w-3.5 h-3.5 text-[var(--accent)]" />
-                <span className="truncate">{conn.agentDisplayName}</span>
+                <span className="truncate">{conn.displayName}</span>
                 <span
-                  className={clsx(
-                    'w-2 h-2 rounded-full ml-auto shrink-0',
-                    conn.running ? 'bg-[var(--success)]' : 'bg-[var(--error)]'
-                  )}
+                  className="w-2 h-2 rounded-full ml-auto shrink-0 bg-[var(--success)]"
                 />
               </button>
               <button

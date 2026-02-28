@@ -11,20 +11,15 @@ export function PermissionDialog() {
   const request = permissionRequests.find(
     (r) =>
       activeSession &&
-      r.connectionID === activeSession.connectionID &&
-      r.sessionID === activeSession.sessionID
+      r.connectionId === activeSession.connectionID &&
+      r.sessionId === activeSession.sessionID
   );
 
   if (!request) return null;
 
   const handleOption = async (optionId: string) => {
-    await respondPermission(
-      request.connectionID,
-      request.sessionID,
-      request.toolCallID,
-      optionId
-    );
-    removePermissionRequest(request.toolCallID);
+    await respondPermission(request.connectionId, optionId);
+    removePermissionRequest(request.toolCallId);
   };
 
   return (
