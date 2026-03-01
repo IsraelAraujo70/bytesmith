@@ -34,6 +34,8 @@ export function NewSession(arg1:string,arg2:string):Promise<string>;
 
 export function RespondPermission(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function ResumeHistoricalSession(arg1:string):Promise<main.ResumeHistoricalResult>;
+
 export function ResumeSession(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SaveSettings(arg1:main.AppSettingsInfo):Promise<void>;

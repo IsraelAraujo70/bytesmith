@@ -12,7 +12,14 @@ type Store interface {
 	Get(id string) *SessionRecord
 	AddMessage(sessionID string, msg Message)
 	AddToolCall(sessionID string, tc ToolCallRecord)
-	UpdateToolCall(sessionID, toolCallID, status, content string)
+	UpdateToolCall(
+		sessionID,
+		toolCallID,
+		status,
+		content string,
+		parts []ToolCallPart,
+		diffSummary ToolCallDiffSummary,
+	)
 	List() []*SessionRecord
 	Delete(id string)
 	Close() error

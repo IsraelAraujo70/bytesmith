@@ -67,6 +67,8 @@ export function useWailsEvents() {
           updateToolCall(data.toolCallId, {
             status: data.status as 'pending' | 'in_progress' | 'completed' | 'failed',
             ...(data.content !== undefined ? { content: data.content } : {}),
+            ...(data.parts !== undefined ? { parts: data.parts } : {}),
+            ...(data.diffSummary !== undefined ? { diffSummary: data.diffSummary } : {}),
           });
         } else {
           addToolCall({
@@ -75,6 +77,8 @@ export function useWailsEvents() {
             kind: data.kind,
             status: data.status as 'pending' | 'in_progress' | 'completed' | 'failed',
             content: data.content || '',
+            parts: data.parts,
+            diffSummary: data.diffSummary,
             timestamp: new Date().toISOString(),
           });
         }

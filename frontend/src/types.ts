@@ -54,13 +54,37 @@ export interface MessageInfo {
   timestamp: string;
 }
 
+export interface ToolCallPartInfo {
+  type: string;
+  text?: string;
+  path?: string;
+  oldText?: string;
+  newText?: string;
+  terminalId?: string;
+}
+
+export interface ToolCallDiffSummaryInfo {
+  additions: number;
+  deletions: number;
+  files: number;
+}
+
 export interface ToolCallInfo {
   id: string;
   title: string;
   kind: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   content: string;
+  parts?: ToolCallPartInfo[];
+  diffSummary?: ToolCallDiffSummaryInfo;
   timestamp: string;
+}
+
+export interface ResumeHistoricalResult {
+  connectionId: string;
+  sessionId: string;
+  resumed: boolean;
+  reason?: string;
 }
 
 export interface PlanEntry {
@@ -111,6 +135,8 @@ export interface AgentToolCallEvent {
   kind: string;
   status: string;
   content?: string;
+  parts?: ToolCallPartInfo[];
+  diffSummary?: ToolCallDiffSummaryInfo;
   isUpdate: boolean;
 }
 

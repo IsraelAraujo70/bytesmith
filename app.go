@@ -69,12 +69,31 @@ type MessageInfo struct {
 
 // ToolCallInfo is a single tool invocation record.
 type ToolCallInfo struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Kind      string `json:"kind"`
-	Status    string `json:"status"`
-	Content   string `json:"content"`
-	Timestamp string `json:"timestamp"`
+	ID          string                   `json:"id"`
+	Title       string                   `json:"title"`
+	Kind        string                   `json:"kind"`
+	Status      string                   `json:"status"`
+	Content     string                   `json:"content"`
+	Parts       []ToolCallPartInfo       `json:"parts,omitempty"`
+	DiffSummary *ToolCallDiffSummaryInfo `json:"diffSummary,omitempty"`
+	Timestamp   string                   `json:"timestamp"`
+}
+
+// ToolCallPartInfo is one structured section of a tool call payload.
+type ToolCallPartInfo struct {
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
+	Path       string `json:"path,omitempty"`
+	OldText    string `json:"oldText,omitempty"`
+	NewText    string `json:"newText,omitempty"`
+	TerminalID string `json:"terminalId,omitempty"`
+}
+
+// ToolCallDiffSummaryInfo aggregates line changes for tool call diffs.
+type ToolCallDiffSummaryInfo struct {
+	Additions int `json:"additions"`
+	Deletions int `json:"deletions"`
+	Files     int `json:"files"`
 }
 
 // SessionListItem is a lightweight summary for the session list view.
@@ -152,6 +171,14 @@ type SessionListPage struct {
 	Sessions    []SessionListItem `json:"sessions"`
 	NextCursor  string            `json:"nextCursor,omitempty"`
 	Unsupported bool              `json:"unsupported,omitempty"`
+}
+
+// ResumeHistoricalResult reports the outcome of reopening an old session.
+type ResumeHistoricalResult struct {
+	ConnectionID string `json:"connectionId"`
+	SessionID    string `json:"sessionId"`
+	Resumed      bool   `json:"resumed"`
+	Reason       string `json:"reason,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -507,14 +534,7 @@ func (a *App) GetSessionHistory(sessionID string) *SessionHistoryInfo {
 
 	toolCalls := make([]ToolCallInfo, 0, len(rec.ToolCalls))
 	for _, tc := range rec.ToolCalls {
-		toolCalls = append(toolCalls, ToolCallInfo{
-			ID:        tc.ID,
-			Title:     tc.Title,
-			Kind:      tc.Kind,
-			Status:    tc.Status,
-			Content:   tc.Content,
-			Timestamp: tc.Timestamp.Format(time.RFC3339),
-		})
+		toolCalls = append(toolCalls, toToolCallInfo(tc))
 	}
 
 	return &SessionHistoryInfo{
@@ -545,6 +565,46 @@ func (a *App) ListSessions() []SessionListItem {
 		})
 	}
 	return result
+}
+
+// ResumeHistoricalSession opens a previously persisted session and tries to
+// reattach it to a live connection for continued chat.
+func (a *App) ResumeHistoricalSession(sessionID string) (ResumeHistoricalResult, error) {
+	rec := a.sessions.Get(sessionID)
+	if rec == nil {
+		return ResumeHistoricalResult{}, fmt.Errorf("session %q not found", sessionID)
+	}
+
+	result := ResumeHistoricalResult{
+		ConnectionID: rec.ConnectionID,
+		SessionID:    sessionID,
+		Resumed:      false,
+	}
+
+	conn := a.manager.GetConnection(rec.ConnectionID)
+	if conn == nil {
+		conn = findConnectionByAgent(a.manager.ListConnections(), rec.AgentName)
+	}
+
+	if conn == nil {
+		connected, err := a.manager.Connect(rec.AgentName, rec.CWD)
+		if err != nil {
+			result.Reason = fmt.Sprintf("failed to connect agent: %v", err)
+			return result, nil
+		}
+		a.wireConnection(connected)
+		conn = connected
+	}
+
+	result.ConnectionID = conn.ID
+
+	if err := a.ResumeSession(conn.ID, sessionID, rec.CWD); err != nil {
+		result.Reason = err.Error()
+		return result, nil
+	}
+
+	result.Resumed = true
+	return result, nil
 }
 
 // ListRemoteSessions lists sessions directly from the connected integrator.
@@ -966,14 +1026,20 @@ func (a *App) handleSessionUpdate(connectionID string, params acp.SessionUpdateP
 		}
 
 	case acp.UpdateToolCall:
-		content := formatToolCallContent(update)
-		a.sessions.AddToolCall(sid, session.ToolCallRecord{
-			ID:      update.ToolCallID,
-			Title:   update.Title,
-			Kind:    update.Kind,
-			Status:  update.Status,
-			Content: content,
-		})
+		parts := normalizeToolCallParts(update.ToolContent)
+		content := formatToolCallContent(parts, update)
+		diffSummary := summarizeDiffParts(parts)
+		record := session.ToolCallRecord{
+			ID:          update.ToolCallID,
+			Title:       update.Title,
+			Kind:        update.Kind,
+			Status:      update.Status,
+			Content:     content,
+			Parts:       parts,
+			DiffSummary: diffSummary,
+		}
+		a.sessions.AddToolCall(sid, record)
+		info := toToolCallInfo(record)
 		wailsRuntime.EventsEmit(a.ctx, "agent:toolcall", map[string]interface{}{
 			"connectionId": connectionID,
 			"sessionId":    sid,
@@ -982,12 +1048,25 @@ func (a *App) handleSessionUpdate(connectionID string, params acp.SessionUpdateP
 			"kind":         update.Kind,
 			"status":       update.Status,
 			"content":      content,
+			"parts":        info.Parts,
+			"diffSummary":  info.DiffSummary,
 			"isUpdate":     false,
 		})
 
 	case acp.UpdateToolCallUpdate:
-		content := formatToolCallContent(update)
-		a.sessions.UpdateToolCall(sid, update.ToolCallID, update.Status, content)
+		parts := normalizeToolCallParts(update.ToolContent)
+		content := formatToolCallContent(parts, update)
+		diffSummary := summarizeDiffParts(parts)
+		a.sessions.UpdateToolCall(sid, update.ToolCallID, update.Status, content, parts, diffSummary)
+		info := toToolCallInfo(session.ToolCallRecord{
+			ID:          update.ToolCallID,
+			Title:       update.Title,
+			Kind:        update.Kind,
+			Status:      update.Status,
+			Content:     content,
+			Parts:       parts,
+			DiffSummary: diffSummary,
+		})
 		wailsRuntime.EventsEmit(a.ctx, "agent:toolcall", map[string]interface{}{
 			"connectionId": connectionID,
 			"sessionId":    sid,
@@ -996,6 +1075,8 @@ func (a *App) handleSessionUpdate(connectionID string, params acp.SessionUpdateP
 			"kind":         update.Kind,
 			"status":       update.Status,
 			"content":      content,
+			"parts":        info.Parts,
+			"diffSummary":  info.DiffSummary,
 			"isUpdate":     true,
 		})
 
@@ -1179,14 +1260,14 @@ func prettyJSON(raw json.RawMessage) string {
 	return string(formatted)
 }
 
-func formatToolCallContent(update acp.SessionUpdate) string {
+func formatToolCallContent(parts []session.ToolCallPart, update acp.SessionUpdate) string {
 	sections := make([]string, 0, 6)
 
-	for _, part := range update.ToolContent {
+	for _, part := range parts {
 		switch part.Type {
 		case "content":
-			if part.Content != nil && strings.TrimSpace(part.Content.Text) != "" {
-				sections = append(sections, "Content:\n"+part.Content.Text)
+			if strings.TrimSpace(part.Text) != "" {
+				sections = append(sections, "Content:\n"+part.Text)
 			}
 		case "diff":
 			var b strings.Builder
@@ -1209,10 +1290,7 @@ func formatToolCallContent(update acp.SessionUpdate) string {
 				sections = append(sections, diff)
 			}
 		case "terminal":
-			terminalText := ""
-			if part.Content != nil {
-				terminalText = part.Content.Text
-			}
+			terminalText := part.Text
 			switch {
 			case strings.TrimSpace(part.TerminalID) != "" && strings.TrimSpace(terminalText) != "":
 				sections = append(sections, fmt.Sprintf("Terminal (%s):\n%s", part.TerminalID, terminalText))
@@ -1222,8 +1300,8 @@ func formatToolCallContent(update acp.SessionUpdate) string {
 				sections = append(sections, "Terminal:\n"+terminalText)
 			}
 		default:
-			if part.Content != nil && strings.TrimSpace(part.Content.Text) != "" {
-				sections = append(sections, part.Content.Text)
+			if strings.TrimSpace(part.Text) != "" {
+				sections = append(sections, part.Text)
 			}
 		}
 	}
@@ -1248,6 +1326,124 @@ func formatToolCallContent(update acp.SessionUpdate) string {
 	}
 
 	return strings.TrimSpace(strings.Join(sections, "\n\n"))
+}
+
+func normalizeToolCallParts(parts []acp.ToolCallContent) []session.ToolCallPart {
+	result := make([]session.ToolCallPart, 0, len(parts))
+	for _, part := range parts {
+		p := session.ToolCallPart{
+			Type: strings.ToLower(strings.TrimSpace(part.Type)),
+			Path: part.Path,
+		}
+
+		if p.Type == "" {
+			p.Type = "content"
+		}
+
+		if part.Content != nil {
+			p.Text = part.Content.Text
+		}
+
+		switch p.Type {
+		case "diff":
+			p.OldText = part.OldText
+			p.NewText = part.NewText
+		case "terminal":
+			p.TerminalID = part.TerminalID
+		}
+
+		result = append(result, p)
+	}
+	return result
+}
+
+func summarizeDiffParts(parts []session.ToolCallPart) session.ToolCallDiffSummary {
+	summary := session.ToolCallDiffSummary{}
+	for _, part := range parts {
+		if part.Type != "diff" {
+			continue
+		}
+		summary.Files++
+		additions, deletions := countLineDiff(part.OldText, part.NewText)
+		summary.Additions += additions
+		summary.Deletions += deletions
+	}
+	return summary
+}
+
+func countLineDiff(oldText, newText string) (additions, deletions int) {
+	oldLines := splitLines(oldText)
+	newLines := splitLines(newText)
+
+	if len(oldLines) == 0 && len(newLines) == 0 {
+		return 0, 0
+	}
+
+	dp := make([][]int, len(oldLines)+1)
+	for i := range dp {
+		dp[i] = make([]int, len(newLines)+1)
+	}
+
+	for i := len(oldLines) - 1; i >= 0; i-- {
+		for j := len(newLines) - 1; j >= 0; j-- {
+			if oldLines[i] == newLines[j] {
+				dp[i][j] = 1 + dp[i+1][j+1]
+			} else if dp[i+1][j] >= dp[i][j+1] {
+				dp[i][j] = dp[i+1][j]
+			} else {
+				dp[i][j] = dp[i][j+1]
+			}
+		}
+	}
+
+	lcs := dp[0][0]
+	return len(newLines) - lcs, len(oldLines) - lcs
+}
+
+func splitLines(input string) []string {
+	trimmed := strings.ReplaceAll(input, "\r\n", "\n")
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 1 && lines[0] == "" {
+		return []string{}
+	}
+	return lines
+}
+
+func toToolCallInfo(tc session.ToolCallRecord) ToolCallInfo {
+	var parts []ToolCallPartInfo
+	for _, part := range tc.Parts {
+		parts = append(parts, ToolCallPartInfo{
+			Type:       part.Type,
+			Text:       part.Text,
+			Path:       part.Path,
+			OldText:    part.OldText,
+			NewText:    part.NewText,
+			TerminalID: part.TerminalID,
+		})
+	}
+
+	var diffSummary *ToolCallDiffSummaryInfo
+	if tc.DiffSummary.Additions > 0 || tc.DiffSummary.Deletions > 0 || tc.DiffSummary.Files > 0 {
+		diffSummary = &ToolCallDiffSummaryInfo{
+			Additions: tc.DiffSummary.Additions,
+			Deletions: tc.DiffSummary.Deletions,
+			Files:     tc.DiffSummary.Files,
+		}
+	}
+
+	return ToolCallInfo{
+		ID:          tc.ID,
+		Title:       tc.Title,
+		Kind:        tc.Kind,
+		Status:      tc.Status,
+		Content:     tc.Content,
+		Parts:       parts,
+		DiffSummary: diffSummary,
+		Timestamp:   tc.Timestamp.Format(time.RFC3339),
+	}
 }
 
 func (a *App) appendStreamChunk(connectionID, sessionID, text, contentType string) {
@@ -1342,4 +1538,13 @@ func appendSessionIfMissing(conn *agent.Connection, sessionID string) {
 		}
 	}
 	conn.Sessions = append(conn.Sessions, sessionID)
+}
+
+func findConnectionByAgent(conns []*agent.Connection, agentName string) *agent.Connection {
+	for _, conn := range conns {
+		if conn.Agent.Name == agentName {
+			return conn
+		}
+	}
+	return nil
 }

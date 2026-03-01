@@ -4,6 +4,7 @@ import type {
   SessionListItem,
   SessionModelsInfo,
   SessionModesInfo,
+  ResumeHistoricalResult,
   MessageInfo,
   ToolCallInfo,
   AvailableCommand,
@@ -134,6 +135,12 @@ export async function resumeSession(
   cwd: string,
 ): Promise<void> {
   await callWails<void>("ResumeSession", connectionID, sessionID, cwd);
+}
+
+export async function resumeHistoricalSession(
+  sessionID: string,
+): Promise<ResumeHistoricalResult> {
+  return await callWails<ResumeHistoricalResult>("ResumeHistoricalSession", sessionID);
 }
 
 export async function getSessionHistory(sessionID: string): Promise<{

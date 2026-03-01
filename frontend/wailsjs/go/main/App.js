@@ -66,6 +66,10 @@ export function RespondPermission(arg1, arg2, arg3) {
   return window['go']['main']['App']['RespondPermission'](arg1, arg2, arg3);
 }
 
+export function ResumeHistoricalSession(arg1) {
+  return window['go']['main']['App']['ResumeHistoricalSession'](arg1);
+}
+
 export function ResumeSession(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResumeSession'](arg1, arg2, arg3);
 }

@@ -13,6 +13,7 @@ export function PromptInput() {
     addMessage,
     setSessionLoading,
     isSessionLoading,
+    sessionReadOnly,
     models,
     currentModelId,
     modes,
@@ -192,7 +193,7 @@ export function PromptInput() {
     textareaRef.current?.focus();
   };
 
-  const disabled = !activeSession;
+  const disabled = !activeSession || sessionReadOnly;
   const currentModel = models.find((m) => m.modelId === currentModelId);
   const currentMode = modes.find((m) => m.modeId === currentModeId) || modes[0];
 
@@ -296,7 +297,9 @@ export function PromptInput() {
           disabled={disabled}
           placeholder={
             disabled
-              ? 'Connect to an agent to start...'
+              ? sessionReadOnly
+                ? 'Session in read-only mode (resume failed)...'
+                : 'Connect to an agent to start...'
               : loading
               ? 'Forging response...'
               : 'Type a message... (/ for commands)'

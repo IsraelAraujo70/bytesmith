@@ -90,6 +90,7 @@ func (s *MemoryStore) AddToolCall(sessionID string, tc ToolCallRecord) {
 	if tc.Timestamp.IsZero() {
 		tc.Timestamp = time.Now()
 	}
+	tc.Parts = append([]ToolCallPart(nil), tc.Parts...)
 
 	rec.ToolCalls = append(rec.ToolCalls, tc)
 	rec.UpdatedAt = time.Now()
@@ -98,7 +99,14 @@ func (s *MemoryStore) AddToolCall(sessionID string, tc ToolCallRecord) {
 // UpdateToolCall finds an existing tool call by ID within the session and
 // updates its status and content fields. It is a no-op if the session or
 // tool call is not found.
-func (s *MemoryStore) UpdateToolCall(sessionID, toolCallID, status, content string) {
+func (s *MemoryStore) UpdateToolCall(
+	sessionID,
+	toolCallID,
+	status,
+	content string,
+	parts []ToolCallPart,
+	diffSummary ToolCallDiffSummary,
+) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -113,6 +121,8 @@ func (s *MemoryStore) UpdateToolCall(sessionID, toolCallID, status, content stri
 			if content != "" {
 				rec.ToolCalls[i].Content = content
 			}
+			rec.ToolCalls[i].Parts = append([]ToolCallPart(nil), parts...)
+			rec.ToolCalls[i].DiffSummary = diffSummary
 			rec.UpdatedAt = time.Now()
 			return
 		}
@@ -151,5 +161,8 @@ func cloneSessionRecord(rec *SessionRecord) *SessionRecord {
 	copyRec := *rec
 	copyRec.Messages = append([]Message(nil), rec.Messages...)
 	copyRec.ToolCalls = append([]ToolCallRecord(nil), rec.ToolCalls...)
+	for i := range copyRec.ToolCalls {
+		copyRec.ToolCalls[i].Parts = append([]ToolCallPart(nil), copyRec.ToolCalls[i].Parts...)
+	}
 	return &copyRec
 }

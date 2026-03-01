@@ -2,6 +2,7 @@ package session
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -78,6 +79,10 @@ func (s *SQLiteStore) migrate() error {
 			kind TEXT NOT NULL,
 			status TEXT NOT NULL,
 			content TEXT NOT NULL,
+			parts_json TEXT NOT NULL DEFAULT '[]',
+			diff_additions INTEGER NOT NULL DEFAULT 0,
+			diff_deletions INTEGER NOT NULL DEFAULT 0,
+			diff_files INTEGER NOT NULL DEFAULT 0,
 			timestamp TEXT NOT NULL,
 			UNIQUE(session_id, tool_call_id),
 			FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -91,7 +96,65 @@ func (s *SQLiteStore) migrate() error {
 		}
 	}
 
+	if err := s.ensureToolCallColumns(); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func (s *SQLiteStore) ensureToolCallColumns() error {
+	type column struct {
+		name string
+		ddl  string
+	}
+
+	columns := []column{
+		{name: "parts_json", ddl: `ALTER TABLE tool_calls ADD COLUMN parts_json TEXT NOT NULL DEFAULT '[]'`},
+		{name: "diff_additions", ddl: `ALTER TABLE tool_calls ADD COLUMN diff_additions INTEGER NOT NULL DEFAULT 0`},
+		{name: "diff_deletions", ddl: `ALTER TABLE tool_calls ADD COLUMN diff_deletions INTEGER NOT NULL DEFAULT 0`},
+		{name: "diff_files", ddl: `ALTER TABLE tool_calls ADD COLUMN diff_files INTEGER NOT NULL DEFAULT 0`},
+	}
+
+	for _, c := range columns {
+		exists, err := s.toolCallColumnExists(c.name)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err := s.db.Exec(c.ddl); err != nil {
+			return fmt.Errorf("session: migrate add column %s: %w", c.name, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *SQLiteStore) toolCallColumnExists(name string) (bool, error) {
+	rows, err := s.db.Query(`PRAGMA table_info(tool_calls)`)
+	if err != nil {
+		return false, fmt.Errorf("session: pragma table_info(tool_calls): %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var colName string
+		var colType string
+		var notNull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &colName, &colType, &notNull, &dflt, &pk); err != nil {
+			return false, fmt.Errorf("session: scan pragma table_info(tool_calls): %w", err)
+		}
+		if colName == name {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // Create upserts a session record in sqlite.
@@ -186,6 +249,7 @@ func (s *SQLiteStore) AddToolCall(sessionID string, tc ToolCallRecord) {
 	}
 	ts := tc.Timestamp.UTC().Format(time.RFC3339Nano)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
+	partsJSON := marshalToolCallParts(tc.Parts)
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -194,15 +258,23 @@ func (s *SQLiteStore) AddToolCall(sessionID string, tc ToolCallRecord) {
 	defer tx.Rollback()
 
 	if _, err := tx.Exec(
-		`INSERT INTO tool_calls (session_id, tool_call_id, title, kind, status, content, timestamp)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO tool_calls (
+		   session_id, tool_call_id, title, kind, status, content,
+		   parts_json, diff_additions, diff_deletions, diff_files, timestamp
+		 )
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(session_id, tool_call_id) DO UPDATE SET
 		   title=excluded.title,
 		   kind=excluded.kind,
 		   status=excluded.status,
 		   content=excluded.content,
+		   parts_json=excluded.parts_json,
+		   diff_additions=excluded.diff_additions,
+		   diff_deletions=excluded.diff_deletions,
+		   diff_files=excluded.diff_files,
 		   timestamp=excluded.timestamp`,
-		sessionID, tc.ID, tc.Title, tc.Kind, tc.Status, tc.Content, ts,
+		sessionID, tc.ID, tc.Title, tc.Kind, tc.Status, tc.Content,
+		partsJSON, tc.DiffSummary.Additions, tc.DiffSummary.Deletions, tc.DiffSummary.Files, ts,
 	); err != nil {
 		return
 	}
@@ -215,21 +287,29 @@ func (s *SQLiteStore) AddToolCall(sessionID string, tc ToolCallRecord) {
 }
 
 // UpdateToolCall updates status/content for one tool call.
-func (s *SQLiteStore) UpdateToolCall(sessionID, toolCallID, status, content string) {
+func (s *SQLiteStore) UpdateToolCall(
+	sessionID,
+	toolCallID,
+	status,
+	content string,
+	parts []ToolCallPart,
+	diffSummary ToolCallDiffSummary,
+) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
+	partsJSON := marshalToolCallParts(parts)
 	if content == "" {
 		_, _ = s.db.Exec(
 			`UPDATE tool_calls
-			 SET status = ?, timestamp = ?
+			 SET status = ?, parts_json = ?, diff_additions = ?, diff_deletions = ?, diff_files = ?, timestamp = ?
 			 WHERE session_id = ? AND tool_call_id = ?`,
-			status, now, sessionID, toolCallID,
+			status, partsJSON, diffSummary.Additions, diffSummary.Deletions, diffSummary.Files, now, sessionID, toolCallID,
 		)
 	} else {
 		_, _ = s.db.Exec(
 			`UPDATE tool_calls
-			 SET status = ?, content = ?, timestamp = ?
+			 SET status = ?, content = ?, parts_json = ?, diff_additions = ?, diff_deletions = ?, diff_files = ?, timestamp = ?
 			 WHERE session_id = ? AND tool_call_id = ?`,
-			status, content, now, sessionID, toolCallID,
+			status, content, partsJSON, diffSummary.Additions, diffSummary.Deletions, diffSummary.Files, now, sessionID, toolCallID,
 		)
 	}
 	_, _ = s.db.Exec(`UPDATE sessions SET updated_at = ? WHERE id = ?`, now, sessionID)
@@ -304,7 +384,13 @@ func (s *SQLiteStore) messagesForSession(sessionID string) []Message {
 
 func (s *SQLiteStore) toolCallsForSession(sessionID string) []ToolCallRecord {
 	rows, err := s.db.Query(
-		`SELECT tool_call_id, title, kind, status, content, timestamp
+		`SELECT
+		   tool_call_id, title, kind, status, content,
+		   COALESCE(parts_json, '[]'),
+		   COALESCE(diff_additions, 0),
+		   COALESCE(diff_deletions, 0),
+		   COALESCE(diff_files, 0),
+		   timestamp
 		 FROM tool_calls
 		 WHERE session_id = ?
 		 ORDER BY timestamp ASC`,
@@ -318,14 +404,54 @@ func (s *SQLiteStore) toolCallsForSession(sessionID string) []ToolCallRecord {
 	out := make([]ToolCallRecord, 0)
 	for rows.Next() {
 		var tc ToolCallRecord
+		var partsJSON string
 		var ts string
-		if err := rows.Scan(&tc.ID, &tc.Title, &tc.Kind, &tc.Status, &tc.Content, &ts); err != nil {
+		if err := rows.Scan(
+			&tc.ID,
+			&tc.Title,
+			&tc.Kind,
+			&tc.Status,
+			&tc.Content,
+			&partsJSON,
+			&tc.DiffSummary.Additions,
+			&tc.DiffSummary.Deletions,
+			&tc.DiffSummary.Files,
+			&ts,
+		); err != nil {
 			continue
 		}
+		tc.Parts = parseToolCallParts(partsJSON)
 		tc.Timestamp = parseRFC3339(ts)
 		out = append(out, tc)
 	}
 	return out
+}
+
+func marshalToolCallParts(parts []ToolCallPart) string {
+	if len(parts) == 0 {
+		return "[]"
+	}
+
+	data, err := json.Marshal(parts)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
+}
+
+func parseToolCallParts(raw string) []ToolCallPart {
+	if raw == "" {
+		return []ToolCallPart{}
+	}
+
+	var parts []ToolCallPart
+	if err := json.Unmarshal([]byte(raw), &parts); err != nil {
+		return []ToolCallPart{}
+	}
+	if parts == nil {
+		return []ToolCallPart{}
+	}
+	return parts
 }
 
 func parseRFC3339(v string) time.Time {

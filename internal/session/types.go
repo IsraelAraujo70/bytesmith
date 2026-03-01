@@ -10,14 +10,33 @@ type Message struct {
 	Timestamp time.Time
 }
 
+// ToolCallPart is one structured section inside a tool call update.
+type ToolCallPart struct {
+	Type       string
+	Text       string
+	Path       string
+	OldText    string
+	NewText    string
+	TerminalID string
+}
+
+// ToolCallDiffSummary tracks aggregate line changes for diff parts.
+type ToolCallDiffSummary struct {
+	Additions int
+	Deletions int
+	Files     int
+}
+
 // ToolCallRecord tracks a tool invocation made during a session.
 type ToolCallRecord struct {
-	ID        string
-	Title     string
-	Kind      string
-	Status    string
-	Content   string // summary of the result
-	Timestamp time.Time
+	ID          string
+	Title       string
+	Kind        string
+	Status      string
+	Content     string // summary of the result
+	Parts       []ToolCallPart
+	DiffSummary ToolCallDiffSummary
+	Timestamp   time.Time
 }
 
 // SessionRecord holds the full state of a single agent session including

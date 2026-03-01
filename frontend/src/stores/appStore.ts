@@ -21,8 +21,54 @@ interface ActiveSession {
   sessionID: string;
 }
 
+const MAX_SESSION_NAV_HISTORY = 100;
+
 function sessionKey(connectionID: string, sessionID: string): string {
   return `${connectionID}::${sessionID}`;
+}
+
+function shouldInsertChunkSeparator(
+  existing: string,
+  incoming: string,
+  kind: MessageKind
+): boolean {
+  if (kind !== 'thought') {
+    return false;
+  }
+  if (!existing || !incoming) {
+    return false;
+  }
+
+  const tail = existing[existing.length - 1];
+  const head = incoming[0];
+
+  if (!tail || !head) {
+    return false;
+  }
+  if (tail === '\n' || head === '\n') {
+    return false;
+  }
+  if (/\s/.test(tail) || /\s/.test(head)) {
+    return false;
+  }
+  if (/[.!?:;,\])}]/.test(tail)) {
+    return true;
+  }
+  if (/[a-z0-9]/.test(tail) && /[A-Z]/.test(head)) {
+    return true;
+  }
+
+  return false;
+}
+
+function mergeMessageChunk(existing: string, incoming: string, kind: MessageKind): string {
+  if (!existing) {
+    return incoming;
+  }
+  if (shouldInsertChunkSeparator(existing, incoming, kind)) {
+    return `${existing}\n${incoming}`;
+  }
+  return existing + incoming;
 }
 
 interface AppState {
@@ -44,6 +90,17 @@ interface AppState {
   // Active session
   activeSession: ActiveSession | null;
   setActiveSession: (session: ActiveSession | null) => void;
+  sessionReadOnly: boolean;
+  setSessionReadOnly: (readOnly: boolean) => void;
+
+  // Session navigation history
+  sessionNavStack: ActiveSession[];
+  sessionNavIndex: number;
+  visitSession: (session: ActiveSession) => void;
+  goBackSession: () => ActiveSession | null;
+  goForwardSession: () => ActiveSession | null;
+  canGoBackSession: () => boolean;
+  canGoForwardSession: () => boolean;
 
   // Working directory
   cwd: string;
@@ -166,6 +223,64 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Active session
   activeSession: null,
   setActiveSession: (session) => set({ activeSession: session }),
+  sessionReadOnly: false,
+  setSessionReadOnly: (sessionReadOnly) => set({ sessionReadOnly }),
+
+  // Session navigation history
+  sessionNavStack: [],
+  sessionNavIndex: -1,
+  visitSession: (session) =>
+    set((s) => {
+      const current = s.sessionNavStack[s.sessionNavIndex];
+      if (
+        current &&
+        current.connectionID === session.connectionID &&
+        current.sessionID === session.sessionID
+      ) {
+        return {};
+      }
+
+      const nextStack = s.sessionNavStack
+        .slice(0, s.sessionNavIndex + 1)
+        .concat(session);
+
+      if (nextStack.length > MAX_SESSION_NAV_HISTORY) {
+        const trimmed = nextStack.slice(nextStack.length - MAX_SESSION_NAV_HISTORY);
+        return {
+          sessionNavStack: trimmed,
+          sessionNavIndex: trimmed.length - 1,
+        };
+      }
+
+      return {
+        sessionNavStack: nextStack,
+        sessionNavIndex: nextStack.length - 1,
+      };
+    }),
+  goBackSession: () => {
+    const s = get();
+    if (s.sessionNavIndex <= 0) {
+      return null;
+    }
+    const nextIndex = s.sessionNavIndex - 1;
+    const target = s.sessionNavStack[nextIndex] || null;
+    set({ sessionNavIndex: nextIndex });
+    return target;
+  },
+  goForwardSession: () => {
+    const s = get();
+    if (s.sessionNavIndex >= s.sessionNavStack.length - 1) {
+      return null;
+    }
+    const nextIndex = s.sessionNavIndex + 1;
+    const target = s.sessionNavStack[nextIndex] || null;
+    set({ sessionNavIndex: nextIndex });
+    return target;
+  },
+  canGoBackSession: () => get().sessionNavIndex > 0,
+  canGoForwardSession: () =>
+    get().sessionNavIndex >= 0 &&
+    get().sessionNavIndex < get().sessionNavStack.length - 1,
 
   // Working directory
   cwd: '',
@@ -183,7 +298,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (idx >= 0) {
         msgs[idx] = {
           ...msgs[idx],
-          content: msgs[idx].content + text,
+          content: mergeMessageChunk(msgs[idx].content, text, kind),
           kind: msgs[idx].kind ?? kind,
         };
       } else {
@@ -313,6 +428,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentModelId: '',
       modes: [],
       currentModeId: '',
+      sessionReadOnly: false,
       loading: false,
       error: null,
     }),

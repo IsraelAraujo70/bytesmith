@@ -1,13 +1,42 @@
-import { useEffect, useRef, useState } from 'react';
-import { Cpu, Folder, WifiOff, Palette, ChevronUp } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Cpu, Folder, WifiOff, Palette, ChevronUp, ArrowLeft, ArrowRight } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAppStore } from '../../stores/appStore';
 import { themes } from '../../lib/themes';
+import { openSessionView } from '../../lib/sessionLoader';
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tag = target.tagName.toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+    return true;
+  }
+
+  return target.isContentEditable;
+}
 
 export function StatusBar() {
   const {
     activeSession,
+    setActiveSession,
+    setSessionReadOnly,
+    clearSession,
+    setMessages,
+    setToolCalls,
+    setSessionModels,
+    setSessionModes,
+    visitSession,
+    goBackSession,
+    goForwardSession,
+    canGoBackSession,
+    canGoForwardSession,
     connections,
+    setConnections,
+    setLoading,
+    setError,
     cwd,
     models,
     currentModelId,
@@ -19,12 +48,50 @@ export function StatusBar() {
   const themePickerRef = useRef<HTMLDivElement>(null);
   const themeBtnRef = useRef<HTMLButtonElement>(null);
 
+  const sessionStore = {
+    setLoading,
+    setError,
+    setConnections,
+    setActiveSession,
+    setSessionReadOnly,
+    clearSession,
+    setMessages,
+    setToolCalls,
+    setSessionModels,
+    setSessionModes,
+    visitSession,
+  };
+
   const activeConn = activeSession
     ? connections.find((c) => c.id === activeSession.connectionID)
     : null;
 
   const currentModel = models.find((m) => m.modelId === currentModelId);
   const themeList = Object.values(themes);
+
+  const handleBack = useCallback(async () => {
+    const target = goBackSession();
+    if (!target) {
+      return;
+    }
+
+    await openSessionView(sessionStore, target, {
+      ensureConnected: true,
+      trackHistory: false,
+    });
+  }, [goBackSession]);
+
+  const handleForward = useCallback(async () => {
+    const target = goForwardSession();
+    if (!target) {
+      return;
+    }
+
+    await openSessionView(sessionStore, target, {
+      ensureConnected: true,
+      trackHistory: false,
+    });
+  }, [goForwardSession]);
 
   // Close theme picker on click outside
   useEffect(() => {
@@ -44,10 +111,68 @@ export function StatusBar() {
     return () => document.removeEventListener('mousedown', handler);
   }, [showThemePicker]);
 
+  useEffect(() => {
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+
+      const mod = isMac ? event.metaKey : event.ctrlKey;
+      if (!mod || event.shiftKey || event.altKey) {
+        return;
+      }
+
+      if (event.key === '[') {
+        event.preventDefault();
+        void handleBack();
+      } else if (event.key === ']') {
+        event.preventDefault();
+        void handleForward();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleBack, handleForward]);
+
   return (
     <div className="relative flex items-center justify-between h-6 px-3 bg-[var(--bg-secondary)] border-t border-[var(--border-subtle)] text-[10px] text-[var(--text-muted)] select-none">
       {/* Left */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => {
+            void handleBack();
+          }}
+          disabled={!canGoBackSession()}
+          className={clsx(
+            'flex items-center justify-center w-4 h-4 rounded border border-[var(--border-subtle)] transition-colors',
+            canGoBackSession()
+              ? 'hover:border-[var(--accent)] hover:text-[var(--accent)]'
+              : 'opacity-40 cursor-not-allowed'
+          )}
+          title="Back (mod+[)"
+        >
+          <ArrowLeft className="w-2.5 h-2.5" />
+        </button>
+
+        <button
+          onClick={() => {
+            void handleForward();
+          }}
+          disabled={!canGoForwardSession()}
+          className={clsx(
+            'flex items-center justify-center w-4 h-4 rounded border border-[var(--border-subtle)] transition-colors',
+            canGoForwardSession()
+              ? 'hover:border-[var(--accent)] hover:text-[var(--accent)]'
+              : 'opacity-40 cursor-not-allowed'
+          )}
+          title="Forward (mod+])"
+        >
+          <ArrowRight className="w-2.5 h-2.5" />
+        </button>
+
         {activeConn ? (
           <div className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)] animate-pulse-ember" />

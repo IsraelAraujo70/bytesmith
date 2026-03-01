@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Bot,
   ChevronDown,
   ChevronRight,
   Folder,
   Hammer,
+  History,
   MessageSquare,
   Plus,
   Settings,
@@ -19,13 +20,11 @@ import {
   disconnectAgent,
   listConnections,
   listSessions,
-  getSessionHistory,
-  getSessionModels,
-  getSessionModes,
   createSession,
   pickDirectory,
 } from '../../lib/api';
-import type { ConnectionInfo, SessionListItem } from '../../types';
+import { openSessionView } from '../../lib/sessionLoader';
+import type { SessionListItem } from '../../types';
 
 export function Sidebar() {
   const {
@@ -35,6 +34,7 @@ export function Sidebar() {
     setConnections,
     activeSession,
     setActiveSession,
+    setSessionReadOnly,
     cwd,
     setCwd,
     clearSession,
@@ -42,22 +42,48 @@ export function Sidebar() {
     setToolCalls,
     setSessionModels,
     setSessionModes,
+    visitSession,
     setLoading,
     setError,
   } = useAppStore();
 
   const [selectedAgent, setSelectedAgent] = useState('');
   const [expandedConns, setExpandedConns] = useState<Set<string>>(new Set());
-  const [connSessions, setConnSessions] = useState<
-    Record<string, SessionListItem[]>
-  >({});
+  const [connSessions, setConnSessions] = useState<Record<string, SessionListItem[]>>({});
+  const [historySessions, setHistorySessions] = useState<SessionListItem[]>([]);
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
 
-  // Load agents on mount
+  const sessionStore = {
+    setLoading,
+    setError,
+    setConnections,
+    setActiveSession,
+    setSessionReadOnly,
+    clearSession,
+    setMessages,
+    setToolCalls,
+    setSessionModels,
+    setSessionModes,
+    visitSession,
+  };
+
+  const refreshConnectionSessions = useCallback(async (connId: string) => {
+    const sessions = await listSessions(connId);
+    setConnSessions((prev) => ({ ...prev, [connId]: sessions }));
+  }, []);
+
+  const refreshHistory = useCallback(async () => {
+    const sessions = await listSessions();
+    sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    setHistorySessions(sessions);
+  }, []);
+
+  // Load agents/connections/history on mount
   useEffect(() => {
     listAgents().then(setAgents);
     listConnections().then(setConnections);
-  }, [setAgents, setConnections]);
+    refreshHistory();
+  }, [setAgents, setConnections, refreshHistory]);
 
   const toggleConn = async (connId: string) => {
     const next = new Set(expandedConns);
@@ -66,8 +92,7 @@ export function Sidebar() {
     } else {
       next.add(connId);
       try {
-        const sessions = await listSessions(connId);
-        setConnSessions((prev) => ({ ...prev, [connId]: sessions }));
+        await refreshConnectionSessions(connId);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setError(`Falha ao listar sessoes: ${message}`);
@@ -90,32 +115,21 @@ export function Sidebar() {
     try {
       const connId = await connectAgent(selectedAgent, cwd);
       const sessionId = await createSession(connId, cwd);
-      const [modelsInfo, modesInfo] = await Promise.all([
-        getSessionModels(sessionId),
-        getSessionModes(sessionId),
-      ]);
-      const agent = agents.find((a) => a.name === selectedAgent);
-      const conn: ConnectionInfo = {
-        id: connId,
-        agentName: selectedAgent,
-        displayName: agent?.displayName || selectedAgent,
-        sessions: [sessionId],
-        integrator: selectedAgent,
-      };
 
-      setConnections([...connections, conn]);
-      setActiveSession({ connectionID: connId, sessionID: sessionId });
-      clearSession();
-      if (modelsInfo) {
-        setSessionModels(modelsInfo.models, modelsInfo.currentModelId);
-      }
-      if (modesInfo) {
-        setSessionModes(modesInfo.modes, modesInfo.currentModeId);
-      }
+      const refreshedConnections = await listConnections();
+      setConnections(refreshedConnections);
+
+      await openSessionView(
+        sessionStore,
+        { connectionID: connId, sessionID: sessionId },
+        { ensureConnected: false, trackHistory: true }
+      );
+
+      await refreshConnectionSessions(connId);
+      await refreshHistory();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(`Falha ao conectar agente: ${message}`);
-    } finally {
       setLoading(false);
     }
   };
@@ -123,11 +137,21 @@ export function Sidebar() {
   const handleDisconnect = async (connId: string) => {
     try {
       await disconnectAgent(connId);
-      setConnections(connections.filter((c) => c.id !== connId));
+      const refreshedConnections = await listConnections();
+      setConnections(refreshedConnections);
+      setConnSessions((prev) => {
+        const next = { ...prev };
+        delete next[connId];
+        return next;
+      });
+
       if (activeSession?.connectionID === connId) {
         setActiveSession(null);
+        setSessionReadOnly(false);
         clearSession();
       }
+
+      await refreshHistory();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(`Falha ao desconectar agente: ${message}`);
@@ -142,53 +166,45 @@ export function Sidebar() {
 
     try {
       const sessionId = await createSession(connId, cwd);
-      setActiveSession({ connectionID: connId, sessionID: sessionId });
-      clearSession();
-      const [modelsInfo, modesInfo, sessions] = await Promise.all([
-        getSessionModels(sessionId),
-        getSessionModes(sessionId),
-        listSessions(connId),
-      ]);
-      if (modelsInfo) {
-        setSessionModels(modelsInfo.models, modelsInfo.currentModelId);
-      }
-      if (modesInfo) {
-        setSessionModes(modesInfo.modes, modesInfo.currentModeId);
-      }
-      setConnSessions((prev) => ({ ...prev, [connId]: sessions }));
+
+      await openSessionView(
+        sessionStore,
+        { connectionID: connId, sessionID: sessionId },
+        { ensureConnected: false, trackHistory: true }
+      );
+
+      await refreshConnectionSessions(connId);
+      await refreshHistory();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(`Falha ao criar sessao: ${message}`);
     }
   };
 
-  const handleSelectSession = async (connectionID: string, sessionID: string) => {
-    setActiveSession({ connectionID, sessionID });
-    clearSession();
+  const handleSelectConnectionSession = async (
+    connectionID: string,
+    sessionID: string,
+    trackHistory = true,
+  ) => {
+    await openSessionView(
+      sessionStore,
+      { connectionID, sessionID },
+      { ensureConnected: false, trackHistory },
+    );
+    await refreshHistory();
+  };
 
-    setLoading(true);
-    try {
-      const [history, modelsInfo, modesInfo] = await Promise.all([
-        getSessionHistory(sessionID),
-        getSessionModels(sessionID),
-        getSessionModes(sessionID),
-      ]);
-      if (history) {
-        setMessages(history.messages || []);
-        setToolCalls(history.toolCalls || []);
-      }
-      if (modelsInfo) {
-        setSessionModels(modelsInfo.models, modelsInfo.currentModelId);
-      }
-      if (modesInfo) {
-        setSessionModes(modesInfo.modes, modesInfo.currentModeId);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(`Falha ao carregar historico da sessao: ${message}`);
-    } finally {
-      setLoading(false);
+  const handleSelectHistorySession = async (session: SessionListItem, trackHistory = true) => {
+    await openSessionView(
+      sessionStore,
+      { connectionID: session.connectionId, sessionID: session.id },
+      { ensureConnected: true, trackHistory },
+    );
+
+    for (const connId of expandedConns) {
+      await refreshConnectionSessions(connId).catch(() => undefined);
     }
+    await refreshHistory();
   };
 
   const handlePickDirectory = async () => {
@@ -313,14 +329,14 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* ── Connections List ── */}
+      {/* ── Sessions + History ── */}
       <div className="flex-1 overflow-y-auto px-2 py-2 border-t border-[var(--border-subtle)]">
         <div className="text-[9px] text-[var(--text-muted)] px-2 mb-2 uppercase tracking-widest font-medium">
           Sessions
         </div>
 
         {connections.length === 0 && (
-          <div className="px-2 py-6 text-[11px] text-[var(--text-muted)] text-center">
+          <div className="px-2 py-4 text-[11px] text-[var(--text-muted)] text-center">
             No active connections
           </div>
         )}
@@ -357,9 +373,9 @@ export function Sidebar() {
                 {(connSessions[conn.id] || []).map((session) => (
                   <button
                     key={session.id}
-                    onClick={() =>
-                      handleSelectSession(conn.id, session.id)
-                    }
+                    onClick={() => {
+                      void handleSelectConnectionSession(conn.id, session.id);
+                    }}
                     className={clsx(
                       'w-full flex items-center gap-1.5 px-2 py-1 rounded text-[11px] transition-all duration-150',
                       activeSession?.sessionID === session.id
@@ -377,7 +393,9 @@ export function Sidebar() {
                   </button>
                 ))}
                 <button
-                  onClick={() => handleNewSession(conn.id)}
+                  onClick={() => {
+                    void handleNewSession(conn.id);
+                  }}
                   className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
                 >
                   <Plus className="w-2.5 h-2.5" />
@@ -386,6 +404,36 @@ export function Sidebar() {
               </div>
             )}
           </div>
+        ))}
+
+        <div className="text-[9px] text-[var(--text-muted)] px-2 mt-3 mb-2 uppercase tracking-widest font-medium">
+          History
+        </div>
+
+        {historySessions.length === 0 && (
+          <div className="px-2 py-3 text-[11px] text-[var(--text-muted)] text-center">
+            No session history
+          </div>
+        )}
+
+        {historySessions.map((session) => (
+          <button
+            key={`history-${session.id}`}
+            onClick={() => {
+              void handleSelectHistorySession(session);
+            }}
+            className={clsx(
+              'w-full flex items-center gap-1.5 px-2 py-1 rounded text-[11px] transition-all duration-150',
+              activeSession?.sessionID === session.id
+                ? 'bg-[var(--accent-muted)] text-[var(--accent)] font-medium'
+                : 'hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
+            )}
+            title={`${session.agentName} • ${session.cwd}`}
+          >
+            <History className="w-2.5 h-2.5 shrink-0" />
+            <span className="truncate">{session.cwd.split('/').pop() || session.id.slice(0, 8)}</span>
+            <span className="ml-auto text-[9px] opacity-40 font-mono">{session.agentName}</span>
+          </button>
         ))}
       </div>
 
