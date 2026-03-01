@@ -8,7 +8,6 @@ import (
 )
 
 var deprecatedBuiltInAgents = map[string]struct{}{
-	"gemini":          {},
 	"claude-code-acp": {},
 	"goose":           {},
 	"kiro":            {},

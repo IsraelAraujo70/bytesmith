@@ -24,8 +24,8 @@ function WelcomeScreen() {
           forge your code
         </p>
         <p className="text-sm text-[var(--text-secondary)] mb-10 leading-relaxed max-w-sm mx-auto">
-          A desktop client for AI coding agents. Connect to Claude Code, Codex,
-          Gemini CLI, and more through the Agent Client Protocol.
+          A desktop client for AI coding agents. Connect to Codex, OpenCode,
+          and more through the Agent Client Protocol.
         </p>
 
         <div className="space-y-2 text-left">

@@ -12,10 +12,10 @@ func TestLoadConfigMigratesCodexAndRemovesDeprecated(t *testing.T) {
 	seed := `{
 		"agents": [
 			{"name":"codex-acp","displayName":"Codex ACP","command":"codex-acp","args":[]},
-			{"name":"gemini","displayName":"Gemini","command":"gemini","args":["--acp"]},
+			{"name":"goose","displayName":"Goose","command":"goose","args":["--acp"]},
 			{"name":"custom-agent","displayName":"Custom","command":"custom-bin","args":["serve"]}
 		],
-		"settings": {"theme":"dark","defaultAgent":"gemini","defaultCwd":"","autoApprove":false}
+		"settings": {"theme":"dark","defaultAgent":"goose","defaultCwd":"","autoApprove":false}
 	}`
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatalf("write seed config: %v", err)
@@ -26,8 +26,8 @@ func TestLoadConfigMigratesCodexAndRemovesDeprecated(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 
-	if hasAgent(cfg.Agents, "gemini") {
-		t.Fatalf("deprecated agent gemini was not removed: %#v", cfg.Agents)
+	if hasAgent(cfg.Agents, "goose") {
+		t.Fatalf("deprecated agent goose was not removed: %#v", cfg.Agents)
 	}
 	if !hasAgent(cfg.Agents, "codex-app-server") {
 		t.Fatalf("codex-acp was not migrated: %#v", cfg.Agents)
@@ -45,10 +45,10 @@ func TestLoadConfigRepopulatesDefaultsWhenOnlyDeprecatedRemain(t *testing.T) {
 	path := filepath.Join(dir, "config.json")
 	seed := `{
 		"agents": [
-			{"name":"gemini","displayName":"Gemini","command":"gemini","args":["--acp"]},
+			{"name":"goose","displayName":"Goose","command":"goose","args":["--acp"]},
 			{"name":"claude-code-acp","displayName":"Claude","command":"claude-code-acp","args":[]}
 		],
-		"settings": {"theme":"dark","defaultAgent":"gemini","defaultCwd":"","autoApprove":false}
+		"settings": {"theme":"dark","defaultAgent":"goose","defaultCwd":"","autoApprove":false}
 	}`
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatalf("write seed config: %v", err)

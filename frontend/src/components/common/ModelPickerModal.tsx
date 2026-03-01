@@ -16,7 +16,6 @@ const KNOWN_PROVIDERS: Record<string, string> = {
   'o3': 'OpenAI',
   'o4': 'OpenAI',
   google: 'Google',
-  gemini: 'Google',
   meta: 'Meta',
   llama: 'Meta',
   mistral: 'Mistral',
