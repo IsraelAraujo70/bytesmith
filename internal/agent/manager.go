@@ -6,17 +6,19 @@ import (
 	"sync"
 
 	"bytesmith/internal/acp"
+	"bytesmith/internal/integrator"
 
 	"github.com/google/uuid"
 )
 
 // Connection represents a live connection to an agent subprocess.
 type Connection struct {
-	ID        string
-	Agent     AgentConfig
-	Client    *acp.Client
-	Transport *acp.StdioTransport
-	Sessions  []string
+	ID           string
+	Agent        AgentConfig
+	Client       *acp.Client
+	Transport    *acp.StdioTransport
+	Sessions     []string
+	IntegratorID string
 }
 
 // Manager handles the lifecycle of multiple agent connections.
@@ -70,11 +72,12 @@ func (m *Manager) Connect(agentName string, cwd string) (*Connection, error) {
 	}
 
 	conn := &Connection{
-		ID:        uuid.New().String(),
-		Agent:     agent,
-		Client:    client,
-		Transport: transport,
-		Sessions:  make([]string, 0),
+		ID:           uuid.New().String(),
+		Agent:        agent,
+		Client:       client,
+		Transport:    transport,
+		Sessions:     make([]string, 0),
+		IntegratorID: integrator.ForAgent(agent.Name).ID(),
 	}
 
 	m.mu.Lock()

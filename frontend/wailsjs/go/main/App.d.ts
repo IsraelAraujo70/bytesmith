@@ -22,16 +22,26 @@ export function ListFiles(arg1:string):Promise<Array<main.FileEntry>>;
 
 export function ListInstalledAgents():Promise<Array<main.AgentInfo>>;
 
+export function ListRemoteSessions(arg1:string,arg2:string,arg3:string):Promise<main.SessionListPage>;
+
 export function ListSessions():Promise<Array<main.SessionListItem>>;
+
+export function LoadRemoteSession(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function NewSession(arg1:string,arg2:string):Promise<string>;
 
-export function RespondPermission(arg1:string,arg2:string):Promise<void>;
+export function RespondPermission(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function ResumeSession(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SaveSettings(arg1:main.AppSettingsInfo):Promise<void>;
 
 export function SelectDirectory():Promise<string>;
 
 export function SendPrompt(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SetSessionConfigOption(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function SetSessionMode(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SetSessionModel(arg1:string,arg2:string,arg3:string):Promise<void>;

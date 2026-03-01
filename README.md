@@ -35,7 +35,7 @@ Any agent that implements the [Agent Client Protocol](https://agentclientprotoco
 | Agent | Command | Website |
 |-------|---------|---------|
 | OpenCode | `opencode acp` | [opencode.ai](https://opencode.ai) |
-| Codex CLI | `codex-acp` | [github.com/openai/codex](https://github.com/openai/codex) |
+| Codex App Server | `codex app-server` | [github.com/openai/codex](https://github.com/openai/codex) |
 | Gemini CLI | `gemini --acp` | [github.com/google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
 | Claude Code | `claude-code-acp` | [github.com/anthropics/claude-code](https://github.com/anthropics/claude-code) |
 | Goose | `goose --acp` | [github.com/block/goose](https://github.com/block/goose) |
@@ -188,9 +188,9 @@ ByteSmith stores its configuration at `~/.config/bytesmith/config.json`.
       "enabled": true
     },
     {
-      "name": "codex",
-      "command": "codex-acp",
-      "args": [],
+      "name": "codex-app-server",
+      "command": "codex",
+      "args": ["app-server"],
       "enabled": true
     }
   ],

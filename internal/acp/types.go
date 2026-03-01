@@ -197,6 +197,43 @@ type SessionLoadParams struct {
 	MCPServers []MCPServer `json:"mcpServers"`
 }
 
+// SessionResumeParams requests the agent to resume an existing session.
+type SessionResumeParams struct {
+	SessionID  string      `json:"sessionId"`
+	CWD        string      `json:"cwd"`
+	MCPServers []MCPServer `json:"mcpServers"`
+}
+
+// SessionResumeResult contains metadata returned by a resume operation.
+type SessionResumeResult struct {
+	SessionID string              `json:"sessionId"`
+	Models    *SessionModelsState `json:"models,omitempty"`
+	Modes     *SessionModesState  `json:"modes,omitempty"`
+	Meta      map[string]any      `json:"_meta,omitempty"`
+}
+
+// SessionListParams requests a paginated list of sessions.
+type SessionListParams struct {
+	CWD    string `json:"cwd,omitempty"`
+	Cursor string `json:"cursor,omitempty"`
+}
+
+// SessionInfo is one entry in a remote session listing.
+type SessionInfo struct {
+	SessionID string         `json:"sessionId"`
+	CWD       string         `json:"cwd,omitempty"`
+	Title     string         `json:"title,omitempty"`
+	UpdatedAt string         `json:"updatedAt,omitempty"`
+	Meta      map[string]any `json:"meta,omitempty"`
+}
+
+// SessionListResult is the response payload for session/list.
+type SessionListResult struct {
+	Sessions   []SessionInfo  `json:"sessions"`
+	NextCursor string         `json:"nextCursor,omitempty"`
+	Meta       map[string]any `json:"meta,omitempty"`
+}
+
 // MCPServer describes an MCP server to attach to the session.
 // For stdio transport, Command and Args are used.
 // For HTTP transport, Type, URL, and Headers are used.
@@ -258,6 +295,7 @@ type ContentBlock struct {
 	// Image/audio fields.
 	Data     string `json:"data,omitempty"`
 	MimeType string `json:"mimeType,omitempty"`
+	URI      string `json:"uri,omitempty"`
 }
 
 // Resource represents an embedded or linked resource.
@@ -265,6 +303,7 @@ type Resource struct {
 	URI      string `json:"uri"`
 	MimeType string `json:"mimeType,omitempty"`
 	Text     string `json:"text,omitempty"`
+	Blob     string `json:"blob,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +320,7 @@ type SessionUpdateParams struct {
 const (
 	UpdateAgentMessageChunk = "agent_message_chunk"
 	UpdateUserMessageChunk  = "user_message_chunk"
+	UpdateAgentThoughtChunk = "agent_thought_chunk"
 	UpdateToolCall          = "tool_call"
 	UpdateToolCallUpdate    = "tool_call_update"
 	UpdatePlan              = "plan"
@@ -289,15 +329,6 @@ const (
 
 // SessionUpdate represents a single update from the agent during a session.
 //
-// The update type is indicated by the Type field. Different fields are
-// populated depending on the type:
-//
-//   - agent_message_chunk / user_message_chunk: MessageContent is set.
-//   - tool_call / tool_call_update: ToolCallID, Title, Kind, Status,
-//     ToolContent, Locations, RawInput, RawOutput may be set.
-//   - plan: Entries is set.
-//   - available_commands_update: AvailableCommands is set.
-//
 // The ACP spec overloads the JSON "content" field for both message chunks
 // (a single ContentBlock) and tool calls ([]ToolCallContent). We resolve
 // this with separate Go fields and a custom JSON un/marshaler.
@@ -305,7 +336,7 @@ type SessionUpdate struct {
 	// Type is the discriminator (JSON key: "sessionUpdate").
 	Type string `json:"-"`
 
-	// MessageContent is populated for agent_message_chunk / user_message_chunk.
+	// MessageContent is populated for message/thought chunk updates.
 	MessageContent *ContentBlock `json:"-"`
 
 	// ToolCallID identifies the tool call (for tool_call / tool_call_update).
@@ -381,7 +412,7 @@ func (u *SessionUpdate) UnmarshalJSON(data []byte) error {
 	}
 
 	switch raw.SessionUpdate {
-	case UpdateAgentMessageChunk, UpdateUserMessageChunk:
+	case UpdateAgentMessageChunk, UpdateUserMessageChunk, UpdateAgentThoughtChunk:
 		var cb ContentBlock
 		if err := json.Unmarshal(raw.Content, &cb); err != nil {
 			return fmt.Errorf("unmarshal message content: %w", err)
@@ -428,7 +459,7 @@ func (u SessionUpdate) MarshalJSON() ([]byte, error) {
 	}
 
 	switch u.Type {
-	case UpdateAgentMessageChunk, UpdateUserMessageChunk:
+	case UpdateAgentMessageChunk, UpdateUserMessageChunk, UpdateAgentThoughtChunk:
 		if u.MessageContent != nil {
 			b, err := json.Marshal(u.MessageContent)
 			if err != nil {
@@ -626,6 +657,13 @@ type TerminalReleaseParams struct {
 // SessionSetModeParams requests the agent to switch its operating mode.
 type SessionSetModeParams struct {
 	SessionID string `json:"sessionId"`
+	ModeID    string `json:"modeId"`
+}
+
+// SessionSetModeLegacyParams is kept for older agents that still use
+// session/setMode with the "mode" field.
+type SessionSetModeLegacyParams struct {
+	SessionID string `json:"sessionId"`
 	Mode      string `json:"mode"`
 }
 
@@ -637,6 +675,13 @@ type SessionSetConfigOptionParams struct {
 	Value     string `json:"value"`
 }
 
+// SessionSetModelParams requests the agent to switch the active model.
+// This method is currently an OpenCode ACP extension.
+type SessionSetModelParams struct {
+	SessionID string `json:"sessionId"`
+	ModelID   string `json:"modelId"`
+}
+
 // ---------------------------------------------------------------------------
 // ACP method names (JSON-RPC method strings)
 // ---------------------------------------------------------------------------
@@ -645,9 +690,13 @@ const (
 	MethodInitialize        = "initialize"
 	MethodSessionNew        = "session/new"
 	MethodSessionLoad       = "session/load"
+	MethodSessionResume     = "session/resume"
+	MethodSessionList       = "session/list"
 	MethodSessionPrompt     = "session/prompt"
 	MethodSessionCancel     = "session/cancel"
-	MethodSessionSetMode    = "session/setMode"
+	MethodSessionSetMode    = "session/set_mode"
+	MethodSessionSetModeOld = "session/setMode"
+	MethodSessionSetModel   = "session/set_model"
 	MethodSessionSetConfig  = "session/set_config_option"
 	MethodSessionUpdate     = "session/update"
 	MethodRequestPermission = "requestPermission"

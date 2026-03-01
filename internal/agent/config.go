@@ -65,11 +65,11 @@ func DefaultConfig() *Config {
 				AutoDetect:  true,
 			},
 			{
-				Name:        "codex-acp",
-				DisplayName: "Codex CLI",
-				Command:     "codex-acp",
-				Args:        []string{},
-				Description: "OpenAI Codex CLI com ACP (requer binario codex-acp)",
+				Name:        "codex-app-server",
+				DisplayName: "Codex App Server",
+				Command:     "codex",
+				Args:        []string{"app-server"},
+				Description: "OpenAI Codex app-server",
 				AutoDetect:  true,
 			},
 			{
@@ -140,6 +140,28 @@ func LoadConfig(path string) (*Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("agent: parse config: %w", err)
+	}
+
+	// Migration: when only `codex` is installed (common in recent setups),
+	// transparently upgrade old `codex-acp` entries to `codex app-server`.
+	changed := false
+	if !IsInstalled("codex-acp") && IsInstalled("codex") {
+		for i := range cfg.Agents {
+			if cfg.Agents[i].Name == "codex-acp" && cfg.Agents[i].Command == "codex-acp" {
+				cfg.Agents[i].Name = "codex-app-server"
+				cfg.Agents[i].DisplayName = "Codex App Server"
+				cfg.Agents[i].Command = "codex"
+				cfg.Agents[i].Args = []string{"app-server"}
+				cfg.Agents[i].Description = "OpenAI Codex app-server"
+				changed = true
+			}
+		}
+	}
+
+	if changed {
+		if err := SaveConfig(path, &cfg); err != nil {
+			return nil, fmt.Errorf("agent: migrate config: %w", err)
+		}
 	}
 	return &cfg, nil
 }

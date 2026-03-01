@@ -3,8 +3,10 @@ package acp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -49,6 +51,21 @@ type Client struct {
 	onTerminalKill      func(TerminalKillParams) error
 	onTerminalRelease   func(TerminalReleaseParams) error
 	handlerMu           sync.RWMutex
+
+	// codexSessions stores compatibility state for sessions created via
+	// `codex app-server` (non-ACP JSON-RPC dialect).
+	codexSessions map[string]*codexSessionState
+	codexMu       sync.RWMutex
+}
+
+type codexSessionState struct {
+	CWD               string
+	ModelID           string
+	ReasoningEffort   string
+	Summary           string
+	ApprovalPolicy    string
+	SandboxPolicyType string
+	PromptDone        chan string
 }
 
 // NewClient creates an ACP client bound to the given transport. The transport
@@ -59,6 +76,7 @@ func NewClient(transport *StdioTransport) *Client {
 		transport:      transport,
 		pending:        make(map[int64]chan json.RawMessage),
 		RequestTimeout: DefaultRequestTimeout,
+		codexSessions:  make(map[string]*codexSessionState),
 	}
 	transport.SetHandler(c.dispatch)
 	return c
@@ -119,6 +137,9 @@ func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []MCPSer
 
 	raw, err := c.call(ctx, MethodSessionNew, params)
 	if err != nil {
+		if isMethodUnavailable(err, MethodSessionNew) {
+			return c.newSessionCodex(ctx, cwd)
+		}
 		return nil, fmt.Errorf("session/new: %w", err)
 	}
 
@@ -127,6 +148,96 @@ func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []MCPSer
 		return nil, fmt.Errorf("session/new: unmarshal result: %w", err)
 	}
 	return &result, nil
+}
+
+func (c *Client) newSessionCodex(ctx context.Context, cwd string) (*SessionNewResult, error) {
+	raw, err := c.call(ctx, "newConversation", map[string]any{})
+	if err != nil {
+		return nil, fmt.Errorf("codex/newConversation: %w", err)
+	}
+
+	var conversation struct {
+		ConversationID  string `json:"conversationId"`
+		Model           string `json:"model"`
+		ReasoningEffort string `json:"reasoningEffort"`
+		RolloutPath     string `json:"rolloutPath"`
+	}
+	if err := json.Unmarshal(raw, &conversation); err != nil {
+		return nil, fmt.Errorf("codex/newConversation: unmarshal result: %w", err)
+	}
+	if conversation.ConversationID == "" {
+		return nil, fmt.Errorf("codex/newConversation: empty conversationId")
+	}
+
+	_, err = c.call(ctx, "addConversationListener", map[string]any{
+		"conversationId": conversation.ConversationID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("codex/addConversationListener: %w", err)
+	}
+
+	models := []SessionModel{}
+	modelsRaw, modelErr := c.call(ctx, "model/list", map[string]any{})
+	if modelErr == nil {
+		var list struct {
+			Data []struct {
+				ID          string `json:"id"`
+				DisplayName string `json:"displayName"`
+				Model       string `json:"model"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(modelsRaw, &list); err == nil {
+			models = make([]SessionModel, 0, len(list.Data))
+			for _, m := range list.Data {
+				id := m.ID
+				if id == "" {
+					id = m.Model
+				}
+				if id == "" {
+					continue
+				}
+				name := m.DisplayName
+				if name == "" {
+					name = id
+				}
+				models = append(models, SessionModel{ModelID: id, Name: name})
+			}
+		}
+	}
+
+	if conversation.Model != "" && !sessionModelExists(models, conversation.Model) {
+		models = append(models, SessionModel{ModelID: conversation.Model, Name: conversation.Model})
+	}
+
+	result := &SessionNewResult{
+		SessionID: conversation.ConversationID,
+		Models: &SessionModelsState{
+			CurrentModelID:  conversation.Model,
+			AvailableModels: models,
+		},
+	}
+
+	c.codexMu.Lock()
+	c.codexSessions[conversation.ConversationID] = &codexSessionState{
+		CWD:               cwd,
+		ModelID:           conversation.Model,
+		ReasoningEffort:   conversation.ReasoningEffort,
+		Summary:           "none",
+		ApprovalPolicy:    "on-request",
+		SandboxPolicyType: "workspace-write",
+	}
+	c.codexMu.Unlock()
+
+	return result, nil
+}
+
+func sessionModelExists(models []SessionModel, modelID string) bool {
+	for _, m := range models {
+		if m.ModelID == modelID {
+			return true
+		}
+	}
+	return false
 }
 
 // LoadSession asks the agent to load an existing session.
@@ -148,6 +259,69 @@ func (c *Client) LoadSession(ctx context.Context, sessionID, cwd string, mcpServ
 	return nil
 }
 
+// ResumeSession asks the agent to resume an existing session.
+func (c *Client) ResumeSession(ctx context.Context, sessionID, cwd string, mcpServers []MCPServer) (*SessionResumeResult, error) {
+	if c.isCodexSession(sessionID) {
+		return nil, fmt.Errorf("session/resume unsupported for codex compatibility sessions")
+	}
+
+	if mcpServers == nil {
+		mcpServers = []MCPServer{}
+	}
+
+	params := SessionResumeParams{
+		SessionID:  sessionID,
+		CWD:        cwd,
+		MCPServers: mcpServers,
+	}
+
+	raw, err := c.call(ctx, MethodSessionResume, params)
+	if err != nil {
+		if isMethodUnavailable(err, MethodSessionResume) {
+			raw, err = c.call(ctx, "unstable_resumeSession", params)
+			if err != nil {
+				return nil, fmt.Errorf("session/resume: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("session/resume: %w", err)
+		}
+	}
+
+	var result SessionResumeResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("session/resume: unmarshal result: %w", err)
+	}
+
+	return &result, nil
+}
+
+// ListSessions returns a page of remote sessions, if supported by the agent.
+func (c *Client) ListSessions(ctx context.Context, cwd, cursor string) (*SessionListResult, error) {
+	params := SessionListParams{
+		CWD:    cwd,
+		Cursor: cursor,
+	}
+
+	raw, err := c.call(ctx, MethodSessionList, params)
+	if err != nil {
+		if isMethodUnavailable(err, MethodSessionList) {
+			raw, err = c.call(ctx, "unstable_listSessions", params)
+			if err != nil {
+				return nil, fmt.Errorf("session/list: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("session/list: %w", err)
+		}
+	}
+
+	var result SessionListResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("session/list: unmarshal result: %w", err)
+	}
+
+	return &result, nil
+}
+
 // Prompt sends a user prompt to the agent session and blocks until the agent
 // finishes processing. Session updates arrive via the OnSessionUpdate callback
 // while this method is blocked.
@@ -159,6 +333,9 @@ func (c *Client) Prompt(ctx context.Context, sessionID string, prompt []ContentB
 
 	raw, err := c.call(ctx, MethodSessionPrompt, params)
 	if err != nil {
+		if isMethodUnavailable(err, MethodSessionPrompt) {
+			return c.promptCodex(ctx, sessionID, prompt)
+		}
 		return nil, fmt.Errorf("session/prompt: %w", err)
 	}
 
@@ -169,9 +346,112 @@ func (c *Client) Prompt(ctx context.Context, sessionID string, prompt []ContentB
 	return &result, nil
 }
 
+func (c *Client) promptCodex(ctx context.Context, sessionID string, prompt []ContentBlock) (*SessionPromptResult, error) {
+	textParts := make([]string, 0, len(prompt))
+	for _, block := range prompt {
+		if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+			textParts = append(textParts, block.Text)
+		}
+	}
+
+	if len(textParts) == 0 {
+		return nil, fmt.Errorf("codex/sendUserTurn: empty text prompt")
+	}
+	text := strings.Join(textParts, "\n\n")
+
+	c.codexMu.Lock()
+	state, ok := c.codexSessions[sessionID]
+	if !ok {
+		c.codexMu.Unlock()
+		return nil, fmt.Errorf("codex/sendUserTurn: session %q not found", sessionID)
+	}
+
+	doneCh := make(chan string, 1)
+	state.PromptDone = doneCh
+
+	modelID := state.ModelID
+	reasoning := state.ReasoningEffort
+	summary := state.Summary
+	approval := state.ApprovalPolicy
+	sandboxType := state.SandboxPolicyType
+	cwd := state.CWD
+	c.codexMu.Unlock()
+
+	if summary == "" {
+		summary = "none"
+	}
+	if approval == "" {
+		approval = "on-request"
+	}
+	if sandboxType == "" {
+		sandboxType = "workspace-write"
+	}
+
+	params := map[string]any{
+		"conversationId": sessionID,
+		"cwd":            cwd,
+		"items": []map[string]any{{
+			"type": "text",
+			"data": map[string]any{
+				"text": text,
+			},
+		}},
+		"approvalPolicy": approval,
+		"sandboxPolicy": map[string]any{
+			"type": sandboxType,
+		},
+		"summary": summary,
+	}
+	if modelID != "" {
+		params["model"] = modelID
+	}
+	if reasoning != "" {
+		params["reasoningEffort"] = reasoning
+	}
+
+	_, err := c.call(ctx, "sendUserTurn", params)
+	if err != nil {
+		c.codexMu.Lock()
+		if current, exists := c.codexSessions[sessionID]; exists && current.PromptDone == doneCh {
+			current.PromptDone = nil
+		}
+		c.codexMu.Unlock()
+		return nil, fmt.Errorf("codex/sendUserTurn: %w", err)
+	}
+
+	select {
+	case reason := <-doneCh:
+		if reason == "" {
+			reason = "end_turn"
+		}
+		c.codexMu.Lock()
+		if current, exists := c.codexSessions[sessionID]; exists && current.PromptDone == doneCh {
+			current.PromptDone = nil
+		}
+		c.codexMu.Unlock()
+		return &SessionPromptResult{StopReason: reason}, nil
+	case <-ctx.Done():
+		c.codexMu.Lock()
+		if current, exists := c.codexSessions[sessionID]; exists && current.PromptDone == doneCh {
+			current.PromptDone = nil
+		}
+		c.codexMu.Unlock()
+		return nil, ctx.Err()
+	}
+}
+
 // Cancel requests cancellation of an in-progress prompt. This is a
 // notification (fire-and-forget).
 func (c *Client) Cancel(sessionID string) error {
+	if c.isCodexSession(sessionID) {
+		// Best effort: codex app-server uses a different interrupt API.
+		// We keep this non-fatal so UI cancel remains responsive.
+		_, _ = c.call(context.Background(), "interruptConversation", map[string]any{
+			"conversationId": sessionID,
+		})
+		return nil
+	}
+
 	params := SessionCancelParams{
 		SessionID: sessionID,
 	}
@@ -180,16 +460,32 @@ func (c *Client) Cancel(sessionID string) error {
 
 // SetMode asks the agent to switch operating modes.
 func (c *Client) SetMode(ctx context.Context, sessionID, mode string) error {
+	if c.isCodexSession(sessionID) {
+		// codex app-server mode is configured per turn and currently not exposed
+		// as a mutable session setting.
+		return nil
+	}
+
 	params := SessionSetModeParams{
 		SessionID: sessionID,
-		Mode:      mode,
+		ModeID:    mode,
 	}
 
 	_, err := c.call(ctx, MethodSessionSetMode, params)
-	if err != nil {
-		return fmt.Errorf("session/setMode: %w", err)
+	if err == nil {
+		return nil
 	}
-	return nil
+
+	legacy := SessionSetModeLegacyParams{
+		SessionID: sessionID,
+		Mode:      mode,
+	}
+	_, legacyErr := c.call(ctx, MethodSessionSetModeOld, legacy)
+	if legacyErr == nil {
+		return nil
+	}
+
+	return fmt.Errorf("session/set_mode: %w (legacy fallback: %v)", err, legacyErr)
 }
 
 // SetConfigOption asks the agent to set a session configuration option.
@@ -207,6 +503,56 @@ func (c *Client) SetConfigOption(ctx context.Context, sessionID, configID, value
 	return nil
 }
 
+// SetModel asks the agent to switch the active session model.
+// It first tries the OpenCode extension method `session/set_model`, then
+// falls back to ACP `session/set_config_option` for agents that implement it.
+func (c *Client) SetModel(ctx context.Context, sessionID, modelID string) error {
+	if c.isCodexSession(sessionID) {
+		c.codexMu.Lock()
+		if state, ok := c.codexSessions[sessionID]; ok {
+			state.ModelID = modelID
+		}
+		c.codexMu.Unlock()
+		return nil
+	}
+
+	params := SessionSetModelParams{
+		SessionID: sessionID,
+		ModelID:   modelID,
+	}
+
+	_, err := c.call(ctx, MethodSessionSetModel, params)
+	if err == nil {
+		return nil
+	}
+
+	if !isMethodUnavailable(err, MethodSessionSetModel) {
+		return fmt.Errorf("session/set_model: %w", err)
+	}
+
+	if cfgErr := c.SetConfigOption(ctx, sessionID, "model", modelID); cfgErr != nil {
+		return fmt.Errorf("session/set_model unavailable and set_config_option failed: %w", cfgErr)
+	}
+
+	return nil
+}
+
+func isMethodUnavailable(err error, method string) bool {
+	var rpcErr *JSONRPCError
+	if errors.As(err, &rpcErr) {
+		if rpcErr.Code == ErrCodeMethodNotFound {
+			return true
+		}
+		if rpcErr.Code == ErrCodeInvalidRequest && strings.Contains(rpcErr.Message, "unknown variant") {
+			if method == "" {
+				return true
+			}
+			return strings.Contains(rpcErr.Message, "`"+method+"`")
+		}
+	}
+	return false
+}
+
 // Close performs a clean shutdown: cancels pending requests, closes the
 // transport, and waits for the subprocess to exit.
 func (c *Client) Close() error {
@@ -217,6 +563,12 @@ func (c *Client) Close() error {
 		delete(c.pending, id)
 	}
 	c.pendingMu.Unlock()
+
+	c.codexMu.Lock()
+	for _, state := range c.codexSessions {
+		state.PromptDone = nil
+	}
+	c.codexMu.Unlock()
 
 	return c.transport.Close()
 }
@@ -460,8 +812,95 @@ func (c *Client) handleNotification(msg JSONRPCMessage) {
 			h(params)
 		}
 
+	case "item/agentMessage/delta":
+		c.notifMu.RLock()
+		h := c.onSessionUpdate
+		c.notifMu.RUnlock()
+
+		if h != nil {
+			var params struct {
+				ThreadID string `json:"threadId"`
+				Delta    string `json:"delta"`
+			}
+			if err := json.Unmarshal(msg.Params, &params); err != nil {
+				log.Printf("acp: failed to unmarshal codex item/agentMessage/delta params: %v", err)
+				return
+			}
+			if strings.TrimSpace(params.Delta) == "" || params.ThreadID == "" {
+				return
+			}
+
+			h(SessionUpdateParams{
+				SessionID: params.ThreadID,
+				Update: SessionUpdate{
+					Type: UpdateAgentMessageChunk,
+					MessageContent: &ContentBlock{
+						Type: "text",
+						Text: params.Delta,
+					},
+				},
+			})
+		}
+
+	case "codex/event/task_complete":
+		var params struct {
+			ConversationID string `json:"conversationId"`
+		}
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			log.Printf("acp: failed to unmarshal codex task_complete params: %v", err)
+			return
+		}
+		if params.ConversationID != "" {
+			c.signalCodexPromptDone(params.ConversationID, "end_turn")
+		}
+
+	case "task/completed":
+		var params struct {
+			ThreadID   string `json:"threadId"`
+			StopReason string `json:"stopReason"`
+		}
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			log.Printf("acp: failed to unmarshal codex task/completed params: %v", err)
+			return
+		}
+		if params.ThreadID != "" {
+			c.signalCodexPromptDone(params.ThreadID, params.StopReason)
+		}
+
 	default:
+		if strings.HasPrefix(msg.Method, "codex/") ||
+			strings.HasPrefix(msg.Method, "item/") ||
+			strings.HasPrefix(msg.Method, "thread/") ||
+			strings.HasPrefix(msg.Method, "turn/") ||
+			strings.HasPrefix(msg.Method, "account/") {
+			return
+		}
 		log.Printf("acp: unhandled notification: %s", msg.Method)
+	}
+}
+
+func (c *Client) isCodexSession(sessionID string) bool {
+	c.codexMu.RLock()
+	defer c.codexMu.RUnlock()
+	_, ok := c.codexSessions[sessionID]
+	return ok
+}
+
+func (c *Client) signalCodexPromptDone(sessionID, stopReason string) {
+	c.codexMu.RLock()
+	state, ok := c.codexSessions[sessionID]
+	c.codexMu.RUnlock()
+	if !ok || state.PromptDone == nil {
+		return
+	}
+
+	if stopReason == "" {
+		stopReason = "end_turn"
+	}
+
+	select {
+	case state.PromptDone <- stopReason:
+	default:
 	}
 }
 

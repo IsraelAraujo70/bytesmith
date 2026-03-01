@@ -95,6 +95,7 @@ export function Sidebar() {
         agentName: selectedAgent,
         displayName: agent?.displayName || selectedAgent,
         sessions: [sessionId],
+        integrator: selectedAgent,
       };
 
       setConnections([...connections, conn]);

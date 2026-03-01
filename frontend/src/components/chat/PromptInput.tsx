@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { clsx } from 'clsx';
-import { Send, Square, Flame } from 'lucide-react';
+import { Send, Square, Flame, Cpu } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { sendPrompt, cancelPrompt } from '../../lib/api';
 import type { AvailableCommand } from '../../types';
@@ -8,11 +8,14 @@ import type { AvailableCommand } from '../../types';
 export function PromptInput() {
   const {
     activeSession,
-    loading,
     commands,
     setCommands,
     addMessage,
-    setLoading,
+    setSessionLoading,
+    isSessionLoading,
+    models,
+    currentModelId,
+    setModelPickerOpen,
   } = useAppStore();
 
   const [text, setText] = useState('');
@@ -34,6 +37,10 @@ export function PromptInput() {
   useEffect(() => {
     setCommands([]);
   }, [activeSession, setCommands]);
+
+  const loading = activeSession
+    ? isSessionLoading(activeSession.connectionID, activeSession.sessionID)
+    : false;
 
   const filteredCommands = commands.filter((cmd) =>
     cmd.name.toLowerCase().includes(slashFilter.toLowerCase())
@@ -59,25 +66,26 @@ export function PromptInput() {
     setShowSlash(false);
 
     addMessage({
+      id: crypto.randomUUID(),
       role: 'user',
       content,
       timestamp: new Date().toISOString(),
     });
 
-    setLoading(true);
+    setSessionLoading(activeSession.connectionID, activeSession.sessionID, true);
 
     sendPrompt(
       activeSession.connectionID,
       activeSession.sessionID,
       content
     );
-  }, [text, activeSession, loading, addMessage, setLoading]);
+  }, [text, activeSession, loading, addMessage, setSessionLoading]);
 
   const handleCancel = useCallback(() => {
     if (!activeSession) return;
     cancelPrompt(activeSession.connectionID, activeSession.sessionID);
-    setLoading(false);
-  }, [activeSession, setLoading]);
+    setSessionLoading(activeSession.connectionID, activeSession.sessionID, false);
+  }, [activeSession, setSessionLoading]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Slash command navigation
@@ -125,6 +133,7 @@ export function PromptInput() {
   };
 
   const disabled = !activeSession;
+  const currentModel = models.find((m) => m.modelId === currentModelId);
 
   return (
     <div className="relative border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
@@ -155,6 +164,20 @@ export function PromptInput() {
               )}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Model indicator chip */}
+      {activeSession && currentModel && (
+        <div className="flex items-center px-4 pt-2 pb-0">
+          <button
+            onClick={() => setModelPickerOpen(true)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] hover:border-[var(--accent)] text-[10px] text-[var(--text-muted)] hover:text-[var(--accent)] transition-all duration-150"
+            title="Change model (Ctrl+K)"
+          >
+            <Cpu className="w-2.5 h-2.5" />
+            <span className="font-mono">{currentModel.name}</span>
+          </button>
         </div>
       )}
 

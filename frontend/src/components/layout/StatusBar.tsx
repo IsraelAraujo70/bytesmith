@@ -1,8 +1,7 @@
-import { useState } from 'react';
-import { Folder, Wifi, WifiOff, Palette } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Cpu, Folder, WifiOff, Palette, ChevronUp } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAppStore } from '../../stores/appStore';
-import { setSessionModel } from '../../lib/api';
 import { themes } from '../../lib/themes';
 
 export function StatusBar() {
@@ -12,38 +11,38 @@ export function StatusBar() {
     cwd,
     models,
     currentModelId,
-    setSessionModels,
-    setError,
     themeId,
     setTheme,
+    setModelPickerOpen,
   } = useAppStore();
-  const [updatingModel, setUpdatingModel] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
+  const themePickerRef = useRef<HTMLDivElement>(null);
+  const themeBtnRef = useRef<HTMLButtonElement>(null);
 
   const activeConn = activeSession
     ? connections.find((c) => c.id === activeSession.connectionID)
     : null;
 
-  const handleModelChange = async (modelId: string) => {
-    if (!activeSession) return;
-
-    setUpdatingModel(true);
-    try {
-      await setSessionModel(
-        activeSession.connectionID,
-        activeSession.sessionID,
-        modelId
-      );
-      setSessionModels(models, modelId);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(`Falha ao trocar modelo: ${message}`);
-    } finally {
-      setUpdatingModel(false);
-    }
-  };
-
+  const currentModel = models.find((m) => m.modelId === currentModelId);
   const themeList = Object.values(themes);
+
+  // Close theme picker on click outside
+  useEffect(() => {
+    if (!showThemePicker) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        themePickerRef.current &&
+        !themePickerRef.current.contains(target) &&
+        themeBtnRef.current &&
+        !themeBtnRef.current.contains(target)
+      ) {
+        setShowThemePicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showThemePicker]);
 
   return (
     <div className="relative flex items-center justify-between h-6 px-3 bg-[var(--bg-secondary)] border-t border-[var(--border-subtle)] text-[10px] text-[var(--text-muted)] select-none">
@@ -72,20 +71,27 @@ export function StatusBar() {
 
       {/* Right */}
       <div className="flex items-center gap-2">
+        {/* Model picker trigger */}
         {activeSession && models.length > 0 && (
-          <select
-            value={currentModelId || models[0].modelId}
-            onChange={(e) => handleModelChange(e.target.value)}
-            disabled={updatingModel}
-            className="h-4 min-w-[140px] bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded px-1 text-[10px] text-[var(--text-secondary)] disabled:opacity-50 focus:outline-none focus:border-[var(--accent)]"
-            title="Model"
+          <button
+            onClick={() => setModelPickerOpen(true)}
+            className={clsx(
+              'flex items-center gap-1.5 h-4 px-2 rounded',
+              'bg-[var(--bg-tertiary)] border border-[var(--border-subtle)]',
+              'hover:border-[var(--accent)] hover:text-[var(--accent)]',
+              'transition-all duration-150 group'
+            )}
+            title="Change model (Ctrl+K)"
           >
-            {models.map((model) => (
-              <option key={model.modelId} value={model.modelId}>
-                {model.name}
-              </option>
-            ))}
-          </select>
+            <Cpu className="w-2.5 h-2.5 text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors" />
+            <span className="text-[10px] text-[var(--text-secondary)] group-hover:text-[var(--accent)] transition-colors max-w-[160px] truncate">
+              {currentModel?.name || currentModelId || 'Select model'}
+            </span>
+            <kbd className="hidden sm:inline ml-1 px-1 py-px rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[8px] text-[var(--text-muted)] font-mono group-hover:border-[var(--accent)] group-hover:text-[var(--accent)] transition-colors">
+              ⌘K
+            </kbd>
+            <ChevronUp className="w-2 h-2 text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors sm:hidden" />
+          </button>
         )}
 
         {activeSession && (
@@ -96,6 +102,7 @@ export function StatusBar() {
 
         {/* Theme picker */}
         <button
+          ref={themeBtnRef}
           onClick={() => setShowThemePicker(!showThemePicker)}
           className="flex items-center gap-1 px-1 py-0.5 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
           title="Change theme"
@@ -104,7 +111,10 @@ export function StatusBar() {
         </button>
 
         {showThemePicker && (
-          <div className="absolute bottom-full right-2 mb-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-elevated overflow-hidden animate-fade-in z-50">
+          <div
+            ref={themePickerRef}
+            className="absolute bottom-full right-2 mb-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg shadow-elevated overflow-hidden animate-fade-in z-50"
+          >
             {themeList.map((t) => (
               <button
                 key={t.id}

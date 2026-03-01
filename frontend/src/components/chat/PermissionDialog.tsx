@@ -7,19 +7,19 @@ export function PermissionDialog() {
   const { permissionRequests, removePermissionRequest, activeSession } =
     useAppStore();
 
-  // Only show the first request for the active session
+  // Prefer the active session request, otherwise show the oldest pending one.
   const request = permissionRequests.find(
     (r) =>
       activeSession &&
       r.connectionId === activeSession.connectionID &&
       r.sessionId === activeSession.sessionID
-  );
+  ) ?? permissionRequests[0];
 
   if (!request) return null;
 
   const handleOption = async (optionId: string) => {
-    await respondPermission(request.connectionId, optionId);
-    removePermissionRequest(request.toolCallId);
+    await respondPermission(request.sessionId, request.toolCallId, optionId);
+    removePermissionRequest(request.requestId);
   };
 
   return (

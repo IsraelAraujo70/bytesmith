@@ -42,16 +42,28 @@ export function ListInstalledAgents() {
   return window['go']['main']['App']['ListInstalledAgents']();
 }
 
+export function ListRemoteSessions(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ListRemoteSessions'](arg1, arg2, arg3);
+}
+
 export function ListSessions() {
   return window['go']['main']['App']['ListSessions']();
+}
+
+export function LoadRemoteSession(arg1, arg2, arg3) {
+  return window['go']['main']['App']['LoadRemoteSession'](arg1, arg2, arg3);
 }
 
 export function NewSession(arg1, arg2) {
   return window['go']['main']['App']['NewSession'](arg1, arg2);
 }
 
-export function RespondPermission(arg1, arg2) {
-  return window['go']['main']['App']['RespondPermission'](arg1, arg2);
+export function RespondPermission(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RespondPermission'](arg1, arg2, arg3);
+}
+
+export function ResumeSession(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResumeSession'](arg1, arg2, arg3);
 }
 
 export function SaveSettings(arg1) {
@@ -64,6 +76,14 @@ export function SelectDirectory() {
 
 export function SendPrompt(arg1, arg2, arg3) {
   return window['go']['main']['App']['SendPrompt'](arg1, arg2, arg3);
+}
+
+export function SetSessionConfigOption(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SetSessionConfigOption'](arg1, arg2, arg3, arg4);
+}
+
+export function SetSessionMode(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetSessionMode'](arg1, arg2, arg3);
 }
 
 export function SetSessionModel(arg1, arg2, arg3) {

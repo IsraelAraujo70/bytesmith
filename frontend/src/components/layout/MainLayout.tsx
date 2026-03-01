@@ -1,5 +1,6 @@
 import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
+import { ModelPickerModal } from '../common/ModelPickerModal';
 import { useAppStore } from '../../stores/appStore';
 
 interface MainLayoutProps {
@@ -10,7 +11,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const { sidebarCollapsed } = useAppStore();
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-primary)]">
+    <div className="flex flex-col h-full w-full overflow-hidden bg-[var(--bg-primary)]">
       {/* Main content area */}
       <div className="flex flex-1 min-h-0">
         <Sidebar />
@@ -22,6 +23,9 @@ export function MainLayout({ children }: MainLayoutProps) {
         </main>
       </div>
       <StatusBar />
+
+      {/* Global modals */}
+      <ModelPickerModal />
     </div>
   );
 }

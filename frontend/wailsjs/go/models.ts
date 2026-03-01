@@ -43,6 +43,7 @@ export namespace main {
 	    agentName: string;
 	    displayName: string;
 	    sessions: string[];
+	    integrator: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionInfo(source);
@@ -54,6 +55,7 @@ export namespace main {
 	        this.agentName = source["agentName"];
 	        this.displayName = source["displayName"];
 	        this.sessions = source["sessions"];
+	        this.integrator = source["integrator"];
 	    }
 	}
 	export class FileEntry {
@@ -75,6 +77,7 @@ export namespace main {
 	    }
 	}
 	export class MessageInfo {
+	    id: string;
 	    role: string;
 	    content: string;
 	    timestamp: string;
@@ -85,6 +88,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
 	        this.role = source["role"];
 	        this.content = source["content"];
 	        this.timestamp = source["timestamp"];
@@ -179,6 +183,40 @@ export namespace main {
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }
+	}
+	export class SessionListPage {
+	    sessions: SessionListItem[];
+	    nextCursor?: string;
+	    unsupported?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionListPage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessions = this.convertValues(source["sessions"], SessionListItem);
+	        this.nextCursor = source["nextCursor"];
+	        this.unsupported = source["unsupported"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class SessionModelInfo {
 	    modelId: string;

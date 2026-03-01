@@ -15,11 +15,14 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:     "ByteSmith",
-		Width:     1280,
-		Height:    800,
-		MinWidth:  800,
-		MinHeight: 600,
+		Title:            "ByteSmith",
+		Width:            1280,
+		Height:           800,
+		MinWidth:         800,
+		MinHeight:        600,
+		DisableResize:    false,
+		Frameless:        false,
+		WindowStartState: options.Normal,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
