@@ -6,7 +6,7 @@
 
 ByteSmith is a standalone desktop application that connects to any [ACP](https://agentclientprotocol.com)-compatible coding agent. Think of it as ChatGPT desktop, but for coding agents — without needing a full IDE.
 
-It speaks the **Agent Client Protocol (ACP)**, a standard wire protocol (JSON-RPC 2.0 over stdio) that any compliant agent can implement. Install ByteSmith once, connect to OpenCode, Codex App Server, or your own custom ACP agent.
+It speaks the **Agent Client Protocol (ACP)**, a standard wire protocol (JSON-RPC 2.0 over stdio) that any compliant agent can implement. Install ByteSmith once and connect to OpenCode or Codex App Server.
 
 Built with [Wails v2](https://wails.io) (Go backend + React/TypeScript frontend). Binary size is ~9.7 MB.
 
@@ -36,7 +36,6 @@ Any agent that implements the [Agent Client Protocol](https://agentclientprotoco
 |-------|---------|---------|
 | OpenCode | `opencode acp` | [opencode.ai](https://opencode.ai) |
 | Codex App Server | `codex app-server` | [github.com/openai/codex](https://github.com/openai/codex) |
-| Custom agent | _your binary_ | — |
 
 ## Quick Start
 

@@ -6,16 +6,16 @@ import (
 	"testing"
 )
 
-func TestLoadConfigMigratesCodexAndRemovesDeprecated(t *testing.T) {
+func TestLoadConfigMigratesCodexAndKeepsOnlySupportedAgents(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 	seed := `{
 		"agents": [
 			{"name":"codex-acp","displayName":"Codex ACP","command":"codex-acp","args":[]},
-			{"name":"goose","displayName":"Goose","command":"goose","args":["--acp"]},
-			{"name":"custom-agent","displayName":"Custom","command":"custom-bin","args":["serve"]}
+			{"name":"unsupported-a","displayName":"Unsupported A","command":"unsupported-a","args":["--acp"]},
+			{"name":"unsupported-b","displayName":"Unsupported B","command":"unsupported-b","args":["serve"]}
 		],
-		"settings": {"theme":"dark","defaultAgent":"goose","defaultCwd":"","autoApprove":false}
+		"settings": {"theme":"dark","defaultAgent":"unsupported-a","defaultCwd":"","autoApprove":false}
 	}`
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatalf("write seed config: %v", err)
@@ -26,29 +26,26 @@ func TestLoadConfigMigratesCodexAndRemovesDeprecated(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 
-	if hasAgent(cfg.Agents, "goose") {
-		t.Fatalf("deprecated agent goose was not removed: %#v", cfg.Agents)
+	if hasAgent(cfg.Agents, "unsupported-a") || hasAgent(cfg.Agents, "unsupported-b") {
+		t.Fatalf("unsupported agents were not removed: %#v", cfg.Agents)
 	}
 	if !hasAgent(cfg.Agents, "codex-app-server") {
 		t.Fatalf("codex-acp was not migrated: %#v", cfg.Agents)
-	}
-	if !hasAgent(cfg.Agents, "custom-agent") {
-		t.Fatalf("custom agent should be preserved: %#v", cfg.Agents)
 	}
 	if cfg.Settings.DefaultAgent != "codex-app-server" {
 		t.Fatalf("defaultAgent = %q, want codex-app-server", cfg.Settings.DefaultAgent)
 	}
 }
 
-func TestLoadConfigRepopulatesDefaultsWhenOnlyDeprecatedRemain(t *testing.T) {
+func TestLoadConfigRepopulatesDefaultsWhenOnlyUnsupportedRemain(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 	seed := `{
 		"agents": [
-			{"name":"goose","displayName":"Goose","command":"goose","args":["--acp"]},
-			{"name":"claude-code-acp","displayName":"Claude","command":"claude-code-acp","args":[]}
+			{"name":"unsupported-a","displayName":"Unsupported A","command":"unsupported-a","args":["--acp"]},
+			{"name":"unsupported-b","displayName":"Unsupported B","command":"unsupported-b","args":[]}
 		],
-		"settings": {"theme":"dark","defaultAgent":"goose","defaultCwd":"","autoApprove":false}
+		"settings": {"theme":"dark","defaultAgent":"unsupported-a","defaultCwd":"","autoApprove":false}
 	}`
 	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
 		t.Fatalf("write seed config: %v", err)

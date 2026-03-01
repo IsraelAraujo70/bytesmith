@@ -8,37 +8,15 @@ import type { SessionModelInfo } from '../../types';
 // ─── Provider extraction helpers ───────────────────────────────
 
 const KNOWN_PROVIDERS: Record<string, string> = {
-  anthropic: 'Anthropic',
-  claude: 'Anthropic',
   openai: 'OpenAI',
   gpt: 'OpenAI',
   'o1': 'OpenAI',
   'o3': 'OpenAI',
   'o4': 'OpenAI',
-  google: 'Google',
-  meta: 'Meta',
-  llama: 'Meta',
-  mistral: 'Mistral',
-  codestral: 'Mistral',
-  deepseek: 'DeepSeek',
-  cohere: 'Cohere',
-  command: 'Cohere',
-  perplexity: 'Perplexity',
-  groq: 'Groq',
-  together: 'Together',
-  fireworks: 'Fireworks',
-  xai: 'xAI',
-  grok: 'xAI',
 };
 
 const PROVIDER_ICONS: Record<string, string> = {
-  Anthropic: '🟠',
   OpenAI: '🟢',
-  Google: '🔵',
-  Meta: '🟣',
-  Mistral: '🟡',
-  DeepSeek: '🔷',
-  xAI: '⚪',
   Other: '⚙️',
 };
 
@@ -46,7 +24,7 @@ function extractProvider(model: SessionModelInfo): string {
   const id = model.modelId.toLowerCase();
   const name = model.name.toLowerCase();
 
-  // Check for slash-separated provider (e.g. "anthropic/claude-3-opus")
+  // Check for slash-separated provider (e.g. "openai/gpt-4.1")
   if (id.includes('/')) {
     const prefix = id.split('/')[0];
     if (KNOWN_PROVIDERS[prefix]) return KNOWN_PROVIDERS[prefix];

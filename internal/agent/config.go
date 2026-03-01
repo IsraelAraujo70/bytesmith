@@ -7,11 +7,9 @@ import (
 	"path/filepath"
 )
 
-var deprecatedBuiltInAgents = map[string]struct{}{
-	"claude-code-acp": {},
-	"goose":           {},
-	"kiro":            {},
-	"augment":         {},
+var supportedAgentNames = map[string]struct{}{
+	"opencode":         {},
+	"codex-app-server": {},
 }
 
 // AgentConfig represents the configuration for a single agent.
@@ -110,7 +108,7 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	changed := migrateCodexACPEntries(&cfg)
-	if removeDeprecatedAgents(&cfg) {
+	if removeUnsupportedAgents(&cfg) {
 		changed = true
 	}
 	if len(cfg.Agents) == 0 {
@@ -145,20 +143,20 @@ func migrateCodexACPEntries(cfg *Config) bool {
 	return changed
 }
 
-func removeDeprecatedAgents(cfg *Config) bool {
+func removeUnsupportedAgents(cfg *Config) bool {
 	kept := make([]AgentConfig, 0, len(cfg.Agents))
-	removedAny := false
+	changed := false
 	for _, a := range cfg.Agents {
-		if _, isDeprecated := deprecatedBuiltInAgents[a.Name]; isDeprecated {
-			removedAny = true
+		if _, isSupported := supportedAgentNames[a.Name]; !isSupported {
+			changed = true
 			continue
 		}
 		kept = append(kept, a)
 	}
-	if removedAny {
+	if len(kept) != len(cfg.Agents) {
 		cfg.Agents = kept
 	}
-	return removedAny
+	return changed
 }
 
 func ensureValidDefaultAgent(cfg *Config) bool {
