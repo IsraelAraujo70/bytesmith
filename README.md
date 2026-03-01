@@ -6,7 +6,7 @@
 
 ByteSmith is a standalone desktop application that connects to any [ACP](https://agentclientprotocol.com)-compatible coding agent. Think of it as ChatGPT desktop, but for coding agents — without needing a full IDE.
 
-It speaks the **Agent Client Protocol (ACP)**, a standard wire protocol (JSON-RPC 2.0 over stdio) that any compliant agent can implement. Install ByteSmith once, connect to whichever agent you prefer — OpenCode, Codex CLI, Gemini CLI, Claude Code, Goose, Kiro, Augment, or your own custom agent.
+It speaks the **Agent Client Protocol (ACP)**, a standard wire protocol (JSON-RPC 2.0 over stdio) that any compliant agent can implement. Install ByteSmith once, connect to OpenCode, Codex App Server, or your own custom ACP agent.
 
 Built with [Wails v2](https://wails.io) (Go backend + React/TypeScript frontend). Binary size is ~9.7 MB.
 
@@ -36,11 +36,6 @@ Any agent that implements the [Agent Client Protocol](https://agentclientprotoco
 |-------|---------|---------|
 | OpenCode | `opencode acp` | [opencode.ai](https://opencode.ai) |
 | Codex App Server | `codex app-server` | [github.com/openai/codex](https://github.com/openai/codex) |
-| Gemini CLI | `gemini --acp` | [github.com/google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
-| Claude Code | `claude-code-acp` | [github.com/anthropics/claude-code](https://github.com/anthropics/claude-code) |
-| Goose | `goose --acp` | [github.com/block/goose](https://github.com/block/goose) |
-| Kiro | `kiro --acp` | [kiro.dev](https://kiro.dev) |
-| Augment | `augment acp` | [augmentcode.com](https://augmentcode.com) |
 | Custom agent | _your binary_ | — |
 
 ## Quick Start
@@ -111,7 +106,7 @@ The Vite dev server provides hot reload for frontend changes. A dev server also 
 ├──────────────────────────────────────────────────┤
 │        stdio (JSON-RPC 2.0) ← ACP Protocol      │
 ├──────────────────────────────────────────────────┤
-│  Agent Process (opencode, codex, gemini, etc.)   │
+│        Agent Process (opencode, codex, etc.)      │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -123,14 +118,18 @@ The Vite dev server provides hot reload for frontend changes. A dev server also 
 
 ```
 bytesmith/
-├── main.go                    # Wails app entrypoint
-├── app.go                     # App struct (Wails bindings)
+├── main.go                    # Thin entrypoint
+├── bootstrap.go               # Wails options/bootstrap
+├── assets.go                  # Embedded frontend assets
+├── app.go                     # App struct + bound handlers
+├── app_lifecycle.go           # Startup/shutdown wiring
 ├── wails.json                 # Wails project config
 ├── internal/
 │   ├── acp/
 │   │   ├── client.go          # ACP JSON-RPC client
 │   │   ├── transport_stdio.go # stdio transport layer
-│   │   └── types.go           # ACP protocol types
+│   │   ├── methods.go         # ACP method constants
+│   │   └── types_*.go         # ACP protocol/domain types
 │   ├── agent/
 │   │   ├── config.go          # Agent configuration
 │   │   ├── discovery.go       # Auto-discover installed agents

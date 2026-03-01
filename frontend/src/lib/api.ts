@@ -45,24 +45,10 @@ export async function listAgents(): Promise<AgentInfo[]> {
         installed: false,
       },
       {
-        name: "claude-code-acp",
-        displayName: "Claude Code",
-        command: "claude-code-acp",
-        description: "Anthropic Claude Code with ACP support",
-        installed: false,
-      },
-      {
         name: "codex-app-server",
         displayName: "Codex App Server",
         command: "codex",
         description: "OpenAI Codex app-server (compat mode)",
-        installed: false,
-      },
-      {
-        name: "gemini",
-        displayName: "Gemini CLI",
-        command: "gemini",
-        description: "Google Gemini CLI with ACP support",
         installed: false,
       },
     ];

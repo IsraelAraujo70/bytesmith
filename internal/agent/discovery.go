@@ -29,41 +29,6 @@ var wellKnownAgents = []wellKnownAgent{
 		Args:        []string{"app-server"},
 		Description: "OpenAI Codex app-server",
 	},
-	{
-		Name:        "gemini",
-		DisplayName: "Gemini CLI",
-		Command:     "gemini",
-		Args:        []string{"--acp"},
-		Description: "Google Gemini CLI with ACP support",
-	},
-	{
-		Name:        "claude-code-acp",
-		DisplayName: "Claude Code",
-		Command:     "claude-code-acp",
-		Args:        []string{},
-		Description: "Anthropic Claude Code with ACP support",
-	},
-	{
-		Name:        "goose",
-		DisplayName: "Goose",
-		Command:     "goose",
-		Args:        []string{"--acp"},
-		Description: "Block Goose with ACP support",
-	},
-	{
-		Name:        "kiro",
-		DisplayName: "Kiro",
-		Command:     "kiro",
-		Args:        []string{"--acp"},
-		Description: "Kiro with ACP support",
-	},
-	{
-		Name:        "augment",
-		DisplayName: "Augment",
-		Command:     "augment",
-		Args:        []string{"acp"},
-		Description: "Augment with ACP support",
-	},
 }
 
 // WellKnownAgents returns AgentConfig entries for every known ACP agent,
