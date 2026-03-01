@@ -121,10 +121,11 @@ bytesmith/
 ├── main.go                    # Thin entrypoint
 ├── bootstrap.go               # Wails options/bootstrap
 ├── assets.go                  # Embedded frontend assets
-├── app.go                     # App struct + bound handlers
-├── app_lifecycle.go           # Startup/shutdown wiring
+├── app_lifecycle.go           # Wails adapter (bind + lifecycle forwarding)
 ├── wails.json                 # Wails project config
 ├── internal/
+│   ├── backend/
+│   │   └── app_*.go           # Backend app logic split by domain
 │   ├── acp/
 │   │   ├── client.go          # ACP JSON-RPC client
 │   │   ├── transport_stdio.go # stdio transport layer
