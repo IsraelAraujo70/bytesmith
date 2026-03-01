@@ -461,8 +461,20 @@ func (c *Client) Cancel(sessionID string) error {
 // SetMode asks the agent to switch operating modes.
 func (c *Client) SetMode(ctx context.Context, sessionID, mode string) error {
 	if c.isCodexSession(sessionID) {
-		// codex app-server mode is configured per turn and currently not exposed
-		// as a mutable session setting.
+		approvalPolicy, sandboxPolicy, ok := codexPoliciesForMode(mode)
+		if !ok {
+			return fmt.Errorf("codex/set_mode: unsupported mode %q", mode)
+		}
+
+		c.codexMu.Lock()
+		state, exists := c.codexSessions[sessionID]
+		if !exists {
+			c.codexMu.Unlock()
+			return fmt.Errorf("codex/set_mode: session %q not found", sessionID)
+		}
+		state.ApprovalPolicy = approvalPolicy
+		state.SandboxPolicyType = sandboxPolicy
+		c.codexMu.Unlock()
 		return nil
 	}
 
@@ -486,6 +498,19 @@ func (c *Client) SetMode(ctx context.Context, sessionID, mode string) error {
 	}
 
 	return fmt.Errorf("session/set_mode: %w (legacy fallback: %v)", err, legacyErr)
+}
+
+func codexPoliciesForMode(mode string) (approvalPolicy, sandboxPolicy string, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "full-access", "full_access", "full":
+		return "never", "danger-full-access", true
+	case "restricted", "safe", "workspace", "workspace-write":
+		return "on-request", "workspace-write", true
+	case "plan", "planning", "read-only", "readonly":
+		return "on-request", "read-only", true
+	default:
+		return "", "", false
+	}
 }
 
 // SetConfigOption asks the agent to set a session configuration option.

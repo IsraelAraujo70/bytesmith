@@ -21,6 +21,7 @@ import {
   listSessions,
   getSessionHistory,
   getSessionModels,
+  getSessionModes,
   createSession,
   pickDirectory,
 } from '../../lib/api';
@@ -40,6 +41,7 @@ export function Sidebar() {
     setMessages,
     setToolCalls,
     setSessionModels,
+    setSessionModes,
     setLoading,
     setError,
   } = useAppStore();
@@ -88,7 +90,10 @@ export function Sidebar() {
     try {
       const connId = await connectAgent(selectedAgent, cwd);
       const sessionId = await createSession(connId, cwd);
-      const modelsInfo = await getSessionModels(sessionId);
+      const [modelsInfo, modesInfo] = await Promise.all([
+        getSessionModels(sessionId),
+        getSessionModes(sessionId),
+      ]);
       const agent = agents.find((a) => a.name === selectedAgent);
       const conn: ConnectionInfo = {
         id: connId,
@@ -103,6 +108,9 @@ export function Sidebar() {
       clearSession();
       if (modelsInfo) {
         setSessionModels(modelsInfo.models, modelsInfo.currentModelId);
+      }
+      if (modesInfo) {
+        setSessionModes(modesInfo.modes, modesInfo.currentModeId);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -136,7 +144,17 @@ export function Sidebar() {
       const sessionId = await createSession(connId, cwd);
       setActiveSession({ connectionID: connId, sessionID: sessionId });
       clearSession();
-      const sessions = await listSessions(connId);
+      const [modelsInfo, modesInfo, sessions] = await Promise.all([
+        getSessionModels(sessionId),
+        getSessionModes(sessionId),
+        listSessions(connId),
+      ]);
+      if (modelsInfo) {
+        setSessionModels(modelsInfo.models, modelsInfo.currentModelId);
+      }
+      if (modesInfo) {
+        setSessionModes(modesInfo.modes, modesInfo.currentModeId);
+      }
       setConnSessions((prev) => ({ ...prev, [connId]: sessions }));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -150,15 +168,20 @@ export function Sidebar() {
 
     setLoading(true);
     try {
-      const history = await getSessionHistory(sessionID);
+      const [history, modelsInfo, modesInfo] = await Promise.all([
+        getSessionHistory(sessionID),
+        getSessionModels(sessionID),
+        getSessionModes(sessionID),
+      ]);
       if (history) {
         setMessages(history.messages || []);
         setToolCalls(history.toolCalls || []);
       }
-
-      const modelsInfo = await getSessionModels(sessionID);
       if (modelsInfo) {
         setSessionModels(modelsInfo.models, modelsInfo.currentModelId);
+      }
+      if (modesInfo) {
+        setSessionModes(modesInfo.modes, modesInfo.currentModeId);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

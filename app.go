@@ -135,6 +135,18 @@ type SessionModelsInfo struct {
 	Models         []SessionModelInfo `json:"models"`
 }
 
+// SessionModeInfo is one available mode/profile option for a session.
+type SessionModeInfo struct {
+	ModeID string `json:"modeId"`
+	Name   string `json:"name"`
+}
+
+// SessionModesInfo contains mode selection state for a session.
+type SessionModesInfo struct {
+	CurrentModeID string            `json:"currentModeId"`
+	Modes         []SessionModeInfo `json:"modes"`
+}
+
 // SessionListPage is a page of remote sessions queried from an integrator.
 type SessionListPage struct {
 	Sessions    []SessionListItem `json:"sessions"`
@@ -162,6 +174,10 @@ type App struct {
 	// sessionModels stores model options returned by session/new per session.
 	sessionModels   map[string]SessionModelsInfo
 	sessionModelsMu sync.RWMutex
+
+	// sessionModes stores mode/profile options returned by session/new per session.
+	sessionModes   map[string]SessionModesInfo
+	sessionModesMu sync.RWMutex
 
 	// pendingPermissions stores channels keyed by requestID.
 	// pendingPermissionOrder stores request IDs FIFO by session+toolCall.
@@ -196,6 +212,7 @@ func NewApp() *App {
 		pendingPermissionOrder: make(map[string][]string),
 		activePrompts:          make(map[string]context.CancelFunc),
 		sessionModels:          make(map[string]SessionModelsInfo),
+		sessionModes:           make(map[string]SessionModesInfo),
 		streamMessages:         make(map[string]*streamMessage),
 	}
 }
@@ -383,6 +400,13 @@ func (a *App) NewSession(connectionID, cwd string) (string, error) {
 			"currentModelId": info.CurrentModelID,
 			"models":         info.Models,
 		})
+	}
+
+	if modes, ok := resolveSessionModes(conn.IntegratorID, result.Modes); ok {
+		a.sessionModesMu.Lock()
+		a.sessionModes[sessionID] = modes
+		a.sessionModesMu.Unlock()
+		a.emitSessionModes(connectionID, sessionID, modes)
 	}
 
 	return sessionID, nil
@@ -619,6 +643,15 @@ func (a *App) ResumeSession(connectionID, sessionID, cwd string) error {
 		a.sessionModelsMu.Unlock()
 	}
 
+	if result != nil {
+		if modes, ok := resolveSessionModes(conn.IntegratorID, result.Modes); ok {
+			a.sessionModesMu.Lock()
+			a.sessionModes[sessionID] = modes
+			a.sessionModesMu.Unlock()
+			a.emitSessionModes(connectionID, sessionID, modes)
+		}
+	}
+
 	return nil
 }
 
@@ -671,13 +704,64 @@ func (a *App) SetSessionModel(connectionID, sessionID, modelID string) error {
 	return nil
 }
 
+// GetSessionModes returns the known mode/profile selection info for a session.
+func (a *App) GetSessionModes(sessionID string) *SessionModesInfo {
+	a.sessionModesMu.RLock()
+	defer a.sessionModesMu.RUnlock()
+
+	info, ok := a.sessionModes[sessionID]
+	if !ok {
+		return nil
+	}
+
+	copyModes := make([]SessionModeInfo, len(info.Modes))
+	copy(copyModes, info.Modes)
+
+	result := info
+	result.Modes = copyModes
+	return &result
+}
+
 // SetSessionMode updates the current mode for a session.
 func (a *App) SetSessionMode(connectionID, sessionID, modeID string) error {
 	conn := a.manager.GetConnection(connectionID)
 	if conn == nil {
 		return fmt.Errorf("connection %q not found", connectionID)
 	}
-	return conn.Client.SetMode(context.Background(), sessionID, modeID)
+	if err := conn.Client.SetMode(context.Background(), sessionID, modeID); err != nil {
+		return err
+	}
+
+	a.sessionModesMu.Lock()
+	info, ok := a.sessionModes[sessionID]
+	if !ok && conn.IntegratorID == "codex" {
+		info = codexFallbackModes()
+		ok = true
+	}
+	if ok {
+		found := false
+		for _, mode := range info.Modes {
+			if mode.ModeID == modeID {
+				found = true
+				break
+			}
+		}
+		if !found && modeID != "" {
+			info.Modes = append(info.Modes, SessionModeInfo{
+				ModeID: modeID,
+				Name:   modeID,
+			})
+		}
+		info.CurrentModeID = modeID
+		a.sessionModes[sessionID] = info
+	}
+	a.sessionModesMu.Unlock()
+
+	if ok {
+		a.emitSessionModes(connectionID, sessionID, info)
+	}
+
+	return nil
 }
 
 // SetSessionConfigOption sets a generic session config option.
@@ -1013,6 +1097,60 @@ func (a *App) handlePermissionRequest(connectionID string, params acp.RequestPer
 
 func sessionPermissionKey(sessionID, toolCallID string) string {
 	return sessionID + "::" + toolCallID
+}
+
+func codexFallbackModes() SessionModesInfo {
+	return SessionModesInfo{
+		CurrentModeID: "restricted",
+		Modes: []SessionModeInfo{
+			{ModeID: "full-access", Name: "Full Access"},
+			{ModeID: "restricted", Name: "Restricted"},
+			{ModeID: "plan", Name: "Plan"},
+		},
+	}
+}
+
+func resolveSessionModes(integratorID string, state *acp.SessionModesState) (SessionModesInfo, bool) {
+	if state != nil {
+		modes := make([]SessionModeInfo, 0, len(state.AvailableModes))
+		for _, m := range state.AvailableModes {
+			name := m.Name
+			if strings.TrimSpace(name) == "" {
+				name = m.ID
+			}
+			modes = append(modes, SessionModeInfo{
+				ModeID: m.ID,
+				Name:   name,
+			})
+		}
+
+		current := state.CurrentModeID
+		if current == "" && len(modes) > 0 {
+			current = modes[0].ModeID
+		}
+
+		if len(modes) > 0 || current != "" {
+			return SessionModesInfo{
+				CurrentModeID: current,
+				Modes:         modes,
+			}, true
+		}
+	}
+
+	if integratorID == "codex" {
+		return codexFallbackModes(), true
+	}
+
+	return SessionModesInfo{}, false
+}
+
+func (a *App) emitSessionModes(connectionID, sessionID string, info SessionModesInfo) {
+	wailsRuntime.EventsEmit(a.ctx, "agent:modes", map[string]interface{}{
+		"connectionId":  connectionID,
+		"sessionId":     sessionID,
+		"currentModeId": info.CurrentModeID,
+		"modes":         info.Modes,
+	})
 }
 
 func normalizeMessageType(contentType string) string {

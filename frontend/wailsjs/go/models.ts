@@ -218,6 +218,20 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class SessionModeInfo {
+	    modeId: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionModeInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.modeId = source["modeId"];
+	        this.name = source["name"];
+	    }
+	}
 	export class SessionModelInfo {
 	    modelId: string;
 	    name: string;
@@ -244,6 +258,38 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.currentModelId = source["currentModelId"];
 	        this.models = this.convertValues(source["models"], SessionModelInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SessionModesInfo {
+	    currentModeId: string;
+	    modes: SessionModeInfo[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionModesInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.currentModeId = source["currentModeId"];
+	        this.modes = this.convertValues(source["modes"], SessionModeInfo);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

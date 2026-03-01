@@ -12,6 +12,8 @@ export function GetSessionHistory(arg1:string):Promise<main.SessionHistoryInfo>;
 
 export function GetSessionModels(arg1:string):Promise<main.SessionModelsInfo>;
 
+export function GetSessionModes(arg1:string):Promise<main.SessionModesInfo>;
+
 export function GetSettings():Promise<main.AppSettingsInfo>;
 
 export function ListAvailableAgents():Promise<Array<main.AgentInfo>>;

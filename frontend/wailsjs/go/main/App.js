@@ -22,6 +22,10 @@ export function GetSessionModels(arg1) {
   return window['go']['main']['App']['GetSessionModels'](arg1);
 }
 
+export function GetSessionModes(arg1) {
+  return window['go']['main']['App']['GetSessionModes'](arg1);
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }

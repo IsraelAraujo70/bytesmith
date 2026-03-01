@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { clsx } from 'clsx';
-import { Send, Square, Flame, Cpu } from 'lucide-react';
+import { Send, Square, Flame, Cpu, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
-import { sendPrompt, cancelPrompt } from '../../lib/api';
+import { sendPrompt, cancelPrompt, setSessionMode } from '../../lib/api';
 import type { AvailableCommand } from '../../types';
 
 export function PromptInput() {
@@ -15,6 +15,10 @@ export function PromptInput() {
     isSessionLoading,
     models,
     currentModelId,
+    modes,
+    currentModeId,
+    setSessionModes,
+    setError,
     setModelPickerOpen,
   } = useAppStore();
 
@@ -22,7 +26,10 @@ export function PromptInput() {
   const [showSlash, setShowSlash] = useState(false);
   const [slashFilter, setSlashFilter] = useState('');
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const modeButtonRef = useRef<HTMLButtonElement>(null);
+  const modeMenuRef = useRef<HTMLDivElement>(null);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -36,7 +43,25 @@ export function PromptInput() {
   // Reset command list when changing session
   useEffect(() => {
     setCommands([]);
+    setModeMenuOpen(false);
   }, [activeSession, setCommands]);
+
+  useEffect(() => {
+    if (!modeMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        modeMenuRef.current &&
+        !modeMenuRef.current.contains(target) &&
+        modeButtonRef.current &&
+        !modeButtonRef.current.contains(target)
+      ) {
+        setModeMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [modeMenuOpen]);
 
   const loading = activeSession
     ? isSessionLoading(activeSession.connectionID, activeSession.sessionID)
@@ -87,7 +112,42 @@ export function PromptInput() {
     setSessionLoading(activeSession.connectionID, activeSession.sessionID, false);
   }, [activeSession, setSessionLoading]);
 
+  const handleModeChange = useCallback(async (modeId: string) => {
+    if (!activeSession) return;
+    if (modeId === currentModeId) {
+      setModeMenuOpen(false);
+      return;
+    }
+
+    try {
+      await setSessionMode(activeSession.connectionID, activeSession.sessionID, modeId);
+      setSessionModes(modes, modeId);
+      setModeMenuOpen(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Failed to switch mode: ${message}`);
+    }
+  }, [activeSession, currentModeId, modes, setSessionModes, setError]);
+
+  const cycleModesBackward = useCallback(() => {
+    if (!activeSession || modes.length < 2) return;
+
+    const currentIndex = modes.findIndex((mode) => mode.modeId === currentModeId);
+    const startIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (startIndex - 1 + modes.length) % modes.length;
+    const nextMode = modes[nextIndex];
+    if (nextMode) {
+      void handleModeChange(nextMode.modeId);
+    }
+  }, [activeSession, modes, currentModeId, handleModeChange]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!showSlash && e.key === 'Tab' && e.shiftKey && modes.length > 1) {
+      e.preventDefault();
+      cycleModesBackward();
+      return;
+    }
+
     // Slash command navigation
     if (showSlash && filteredCommands.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -134,6 +194,7 @@ export function PromptInput() {
 
   const disabled = !activeSession;
   const currentModel = models.find((m) => m.modelId === currentModelId);
+  const currentMode = modes.find((m) => m.modeId === currentModeId) || modes[0];
 
   return (
     <div className="relative border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
@@ -167,17 +228,61 @@ export function PromptInput() {
         </div>
       )}
 
-      {/* Model indicator chip */}
-      {activeSession && currentModel && (
-        <div className="flex items-center px-4 pt-2 pb-0">
-          <button
-            onClick={() => setModelPickerOpen(true)}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] hover:border-[var(--accent)] text-[10px] text-[var(--text-muted)] hover:text-[var(--accent)] transition-all duration-150"
-            title="Change model (Ctrl+K)"
-          >
-            <Cpu className="w-2.5 h-2.5" />
-            <span className="font-mono">{currentModel.name}</span>
-          </button>
+      {/* Session chips (model + mode) */}
+      {activeSession && (currentModel || currentMode) && (
+        <div className="flex items-center gap-2 px-4 pt-2 pb-0">
+          {currentModel && (
+            <button
+              onClick={() => setModelPickerOpen(true)}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] hover:border-[var(--accent)] text-[10px] text-[var(--text-muted)] hover:text-[var(--accent)] transition-all duration-150"
+              title="Change model (Ctrl+K)"
+            >
+              <Cpu className="w-2.5 h-2.5" />
+              <span className="font-mono">{currentModel.name}</span>
+            </button>
+          )}
+
+          {currentMode && (
+            <div className="relative">
+              <button
+                ref={modeButtonRef}
+                onClick={() => setModeMenuOpen((open) => !open)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] hover:border-[var(--accent)] text-[10px] text-[var(--text-muted)] hover:text-[var(--accent)] transition-all duration-150"
+                title="Change agent mode (Shift+Tab to cycle)"
+              >
+                <SlidersHorizontal className="w-2.5 h-2.5" />
+                <span className="font-mono">{currentMode.name}</span>
+                <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+              </button>
+
+              {modeMenuOpen && modes.length > 0 && (
+                <div
+                  ref={modeMenuRef}
+                  className="absolute left-0 top-full mt-1 min-w-[180px] bg-[var(--bg-elevated)] border border-[var(--border)] rounded-md shadow-elevated overflow-hidden z-20 animate-fade-in"
+                >
+                  {modes.map((mode) => (
+                    <button
+                      key={mode.modeId}
+                      onClick={() => {
+                        void handleModeChange(mode.modeId);
+                      }}
+                      className={clsx(
+                        'w-full flex items-center px-2.5 py-1.5 text-left text-[11px] transition-colors',
+                        mode.modeId === currentModeId
+                          ? 'bg-[var(--accent-muted)] text-[var(--accent)]'
+                          : 'hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+                      )}
+                    >
+                      <span className="truncate">{mode.name}</span>
+                      <span className="ml-auto text-[9px] opacity-50 font-mono">
+                        {mode.modeId}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

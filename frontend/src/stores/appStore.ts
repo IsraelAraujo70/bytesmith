@@ -6,6 +6,7 @@ import type {
   MessageKind,
   ToolCallInfo,
   SessionModelInfo,
+  SessionModeInfo,
   PlanEntry,
   PermissionRequest,
   AvailableCommand,
@@ -84,6 +85,11 @@ interface AppState {
   models: SessionModelInfo[];
   currentModelId: string;
   setSessionModels: (models: SessionModelInfo[], currentModelId: string) => void;
+
+  // Session modes
+  modes: SessionModeInfo[];
+  currentModeId: string;
+  setSessionModes: (modes: SessionModeInfo[], currentModeId: string) => void;
 
   // Permission requests
   permissionRequests: PermissionRequest[];
@@ -247,6 +253,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentModelId: '',
   setSessionModels: (models, currentModelId) => set({ models, currentModelId }),
 
+  // Session modes
+  modes: [],
+  currentModeId: '',
+  setSessionModes: (modes, currentModeId) => set({ modes, currentModeId }),
+
   // Permission requests
   permissionRequests: [],
   addPermissionRequest: (req) =>
@@ -300,6 +311,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       plan: [],
       models: [],
       currentModelId: '',
+      modes: [],
+      currentModeId: '',
       loading: false,
       error: null,
     }),

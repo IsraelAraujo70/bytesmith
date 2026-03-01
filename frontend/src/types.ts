@@ -34,6 +34,16 @@ export interface SessionModelsInfo {
   models: SessionModelInfo[];
 }
 
+export interface SessionModeInfo {
+  modeId: string;
+  name: string;
+}
+
+export interface SessionModesInfo {
+  currentModeId: string;
+  modes: SessionModeInfo[];
+}
+
 export type MessageKind = 'text' | 'thought';
 
 export interface MessageInfo {
@@ -133,6 +143,13 @@ export interface AgentModelsEvent {
   sessionId: string;
   currentModelId: string;
   models: SessionModelInfo[];
+}
+
+export interface AgentModesEvent {
+  connectionId: string;
+  sessionId: string;
+  currentModeId: string;
+  modes: SessionModeInfo[];
 }
 
 // Timeline item is a union for rendering chat + tool calls in order

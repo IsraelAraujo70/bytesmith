@@ -9,6 +9,7 @@ import type {
   PromptDoneEvent,
   AgentErrorEvent,
   AgentModelsEvent,
+  AgentModesEvent,
   MessageKind,
   PermissionRequest,
 } from '../types';
@@ -31,6 +32,7 @@ export function useWailsEvents() {
     setPlan,
     setCommands,
     setSessionModels,
+    setSessionModes,
     addPermissionRequest,
     setSessionLoading,
     setError,
@@ -112,6 +114,17 @@ export function useWailsEvents() {
       }
     });
 
+    // Session modes
+    EventsOn('agent:modes', (data: AgentModesEvent) => {
+      if (
+        !activeSession ||
+        (data.connectionId === activeSession.connectionID &&
+          data.sessionId === activeSession.sessionID)
+      ) {
+        setSessionModes(data.modes, data.currentModeId);
+      }
+    });
+
     // Permission request
     EventsOn('agent:permission', (data: PermissionRequest) => {
       addPermissionRequest(data);
@@ -140,6 +153,7 @@ export function useWailsEvents() {
       EventsOff('agent:plan');
       EventsOff('agent:commands');
       EventsOff('agent:models');
+      EventsOff('agent:modes');
       EventsOff('agent:permission');
       EventsOff('agent:prompt-done');
       EventsOff('agent:error');
@@ -153,6 +167,7 @@ export function useWailsEvents() {
     setPlan,
     setCommands,
     setSessionModels,
+    setSessionModes,
     addPermissionRequest,
     setSessionLoading,
     setError,

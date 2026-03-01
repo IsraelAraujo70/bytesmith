@@ -3,6 +3,7 @@ import type {
   ConnectionInfo,
   SessionListItem,
   SessionModelsInfo,
+  SessionModesInfo,
   MessageInfo,
   ToolCallInfo,
   AvailableCommand,
@@ -156,6 +157,19 @@ export async function getSessionModels(
   try {
     return await callWails<SessionModelsInfo | null>(
       "GetSessionModels",
+      sessionID,
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function getSessionModes(
+  sessionID: string,
+): Promise<SessionModesInfo | null> {
+  try {
+    return await callWails<SessionModesInfo | null>(
+      "GetSessionModes",
       sessionID,
     );
   } catch {
