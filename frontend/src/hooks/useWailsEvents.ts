@@ -9,20 +9,30 @@ import type {
   PromptDoneEvent,
   AgentErrorEvent,
   AgentModelsEvent,
+  MessageKind,
   PermissionRequest,
 } from '../types';
+
+function mapMessageKind(type: string): MessageKind {
+  const normalized = (type || '').trim().toLowerCase();
+  if (normalized === 'thought' || normalized === 'reasoning') {
+    return 'thought';
+  }
+  return 'text';
+}
 
 export function useWailsEvents() {
   const {
     activeSession,
-    appendToLastAgentMessage,
+    appendAgentMessageChunk,
+    finalizeAgentMessage,
     addToolCall,
     updateToolCall,
     setPlan,
     setCommands,
     setSessionModels,
     addPermissionRequest,
-    setLoading,
+    setSessionLoading,
     setError,
   } = useAppStore();
 
@@ -34,7 +44,13 @@ export function useWailsEvents() {
         data.connectionId === activeSession.connectionID &&
         data.sessionId === activeSession.sessionID
       ) {
-        appendToLastAgentMessage(data.text);
+        const kind = mapMessageKind(data.type);
+        if (data.text) {
+          appendAgentMessageChunk(data.messageId, data.text, kind);
+        }
+        if (data.isFinal) {
+          finalizeAgentMessage(data.messageId, data.content, kind);
+        }
       }
     });
 
@@ -48,6 +64,7 @@ export function useWailsEvents() {
         if (data.isUpdate) {
           updateToolCall(data.toolCallId, {
             status: data.status as 'pending' | 'in_progress' | 'completed' | 'failed',
+            ...(data.content !== undefined ? { content: data.content } : {}),
           });
         } else {
           addToolCall({
@@ -55,7 +72,7 @@ export function useWailsEvents() {
             title: data.title,
             kind: data.kind,
             status: data.status as 'pending' | 'in_progress' | 'completed' | 'failed',
-            content: '',
+            content: data.content || '',
             timestamp: new Date().toISOString(),
           });
         }
@@ -97,24 +114,12 @@ export function useWailsEvents() {
 
     // Permission request
     EventsOn('agent:permission', (data: PermissionRequest) => {
-      if (
-        activeSession &&
-        data.connectionId === activeSession.connectionID &&
-        data.sessionId === activeSession.sessionID
-      ) {
-        addPermissionRequest(data);
-      }
+      addPermissionRequest(data);
     });
 
     // Prompt done
     EventsOn('agent:prompt-done', (data: PromptDoneEvent) => {
-      if (
-        activeSession &&
-        data.connectionId === activeSession.connectionID &&
-        data.sessionId === activeSession.sessionID
-      ) {
-        setLoading(false);
-      }
+      setSessionLoading(data.connectionId, data.sessionId, false);
     });
 
     // Error
@@ -125,8 +130,8 @@ export function useWailsEvents() {
         data.sessionId === activeSession.sessionID
       ) {
         setError(data.error);
-        setLoading(false);
       }
+      setSessionLoading(data.connectionId, data.sessionId, false);
     });
 
     return () => {
@@ -141,14 +146,15 @@ export function useWailsEvents() {
     };
   }, [
     activeSession,
-    appendToLastAgentMessage,
+    appendAgentMessageChunk,
+    finalizeAgentMessage,
     addToolCall,
     updateToolCall,
     setPlan,
     setCommands,
     setSessionModels,
     addPermissionRequest,
-    setLoading,
+    setSessionLoading,
     setError,
   ]);
 }

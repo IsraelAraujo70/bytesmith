@@ -1,8 +1,8 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { clsx } from 'clsx';
 import { Bot, User } from 'lucide-react';
 import type { MessageInfo } from '../../types';
 
@@ -45,6 +45,31 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     );
   }
 
+  const isThought = message.kind === 'thought';
+
+  if (isThought) {
+    return (
+      <div className="flex gap-2.5 px-5 py-1.5 animate-fade-in">
+        <div className="w-6 h-6 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] flex items-center justify-center shrink-0 mt-0.5">
+          <Bot className="w-3.5 h-3.5 text-[var(--accent)]" />
+        </div>
+        <div className="flex-1 min-w-0 max-w-[80%]">
+          <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-3 py-2">
+            <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">
+              Thinking
+            </div>
+            <div className="text-[12px] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap break-words font-mono">
+              {message.content}
+            </div>
+          </div>
+          <div className="text-[9px] mt-1 text-[var(--text-muted)] opacity-40 font-mono">
+            {formatTime(message.timestamp)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Agent messages — left-aligned, Zed-style (no heavy bubble, clean text)
   return (
     <div className="flex gap-2.5 px-5 py-2 animate-fade-in">
@@ -57,7 +82,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       <div className="flex-1 min-w-0 max-w-[80%]">
         <div className="markdown-content text-sm leading-relaxed text-[var(--text-primary)]">
           <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={[remarkGfm, remarkBreaks]}
             components={{
               code({ className, children, ...props }) {
                 const match = /language-(\w+)/.exec(className || '');

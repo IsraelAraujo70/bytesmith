@@ -3,6 +3,7 @@ import type {
   AgentInfo,
   ConnectionInfo,
   MessageInfo,
+  MessageKind,
   ToolCallInfo,
   SessionModelInfo,
   PlanEntry,
@@ -17,6 +18,10 @@ import type { ThemeDefinition } from '../lib/themes';
 interface ActiveSession {
   connectionID: string;
   sessionID: string;
+}
+
+function sessionKey(connectionID: string, sessionID: string): string {
+  return `${connectionID}::${sessionID}`;
 }
 
 interface AppState {
@@ -47,7 +52,16 @@ interface AppState {
   messages: MessageInfo[];
   setMessages: (messages: MessageInfo[]) => void;
   addMessage: (message: MessageInfo) => void;
-  appendToLastAgentMessage: (text: string) => void;
+  appendAgentMessageChunk: (
+    messageId: string,
+    text: string,
+    kind: MessageKind
+  ) => void;
+  finalizeAgentMessage: (
+    messageId: string,
+    content?: string,
+    kind?: MessageKind
+  ) => void;
 
   // Tool calls
   toolCalls: ToolCallInfo[];
@@ -74,7 +88,11 @@ interface AppState {
   // Permission requests
   permissionRequests: PermissionRequest[];
   addPermissionRequest: (req: PermissionRequest) => void;
-  removePermissionRequest: (toolCallId: string) => void;
+  removePermissionRequest: (requestId: string) => void;
+
+  // Model picker modal
+  modelPickerOpen: boolean;
+  setModelPickerOpen: (open: boolean) => void;
 
   // Sidebar collapsed
   sidebarCollapsed: boolean;
@@ -83,6 +101,13 @@ interface AppState {
   // Loading / processing state
   loading: boolean;
   setLoading: (loading: boolean) => void;
+  sessionLoading: Record<string, boolean>;
+  setSessionLoading: (
+    connectionID: string,
+    sessionID: string,
+    loading: boolean
+  ) => void;
+  isSessionLoading: (connectionID: string, sessionID: string) => boolean;
 
   // Error
   error: string | null;
@@ -145,19 +170,46 @@ export const useAppStore = create<AppState>((set, get) => ({
   setMessages: (messages) => set({ messages }),
   addMessage: (message) =>
     set((s) => ({ messages: [...s.messages, message] })),
-  appendToLastAgentMessage: (text) =>
+  appendAgentMessageChunk: (messageId, text, kind) =>
     set((s) => {
       const msgs = [...s.messages];
-      const lastIdx = msgs.length - 1;
-      if (lastIdx >= 0 && msgs[lastIdx].role === 'agent') {
-        msgs[lastIdx] = {
-          ...msgs[lastIdx],
-          content: msgs[lastIdx].content + text,
+      const idx = msgs.findIndex((m) => m.id === messageId);
+      if (idx >= 0) {
+        msgs[idx] = {
+          ...msgs[idx],
+          content: msgs[idx].content + text,
+          kind: msgs[idx].kind ?? kind,
         };
       } else {
         msgs.push({
+          id: messageId,
           role: 'agent',
           content: text,
+          kind,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return { messages: msgs };
+    }),
+  finalizeAgentMessage: (messageId, content, kind = 'text') =>
+    set((s) => {
+      if (content === undefined) {
+        return {};
+      }
+      const msgs = [...s.messages];
+      const idx = msgs.findIndex((m) => m.id === messageId);
+      if (idx >= 0) {
+        msgs[idx] = {
+          ...msgs[idx],
+          content,
+          kind: msgs[idx].kind ?? kind,
+        };
+      } else {
+        msgs.push({
+          id: messageId,
+          role: 'agent',
+          content,
+          kind,
           timestamp: new Date().toISOString(),
         });
       }
@@ -201,10 +253,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       permissionRequests: [...s.permissionRequests, req],
     })),
-  removePermissionRequest: (toolCallId) =>
+  removePermissionRequest: (requestId) =>
     set((s) => ({
       permissionRequests: s.permissionRequests.filter(
-        (r) => r.toolCallId !== toolCallId
+        (r) => r.requestId !== requestId
       ),
     })),
 
@@ -212,9 +264,29 @@ export const useAppStore = create<AppState>((set, get) => ({
   sidebarCollapsed: false,
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
+  // Model picker
+  modelPickerOpen: false,
+  setModelPickerOpen: (open) => set({ modelPickerOpen: open }),
+
   // Loading
   loading: false,
   setLoading: (loading) => set({ loading }),
+  sessionLoading: {},
+  setSessionLoading: (connectionID, sessionID, loading) =>
+    set((s) => {
+      const key = sessionKey(connectionID, sessionID);
+      const next = { ...s.sessionLoading };
+      if (loading) {
+        next[key] = true;
+      } else {
+        delete next[key];
+      }
+      return { sessionLoading: next };
+    }),
+  isSessionLoading: (connectionID, sessionID) => {
+    const key = sessionKey(connectionID, sessionID);
+    return Boolean(get().sessionLoading[key]);
+  },
 
   // Error
   error: null,
@@ -228,7 +300,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       plan: [],
       models: [],
       currentModelId: '',
-      permissionRequests: [],
       loading: false,
       error: null,
     }),

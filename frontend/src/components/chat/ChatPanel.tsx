@@ -9,8 +9,19 @@ import { PermissionDialog } from './PermissionDialog';
 import type { TimelineItem } from '../../types';
 
 export function ChatPanel() {
-  const { messages, toolCalls, plan, loading, getTimeline } = useAppStore();
+  const {
+    messages,
+    toolCalls,
+    plan,
+    activeSession,
+    isSessionLoading,
+    getTimeline,
+  } = useAppStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const loading = activeSession
+    ? isSessionLoading(activeSession.connectionID, activeSession.sessionID)
+    : false;
 
   const timeline = getTimeline();
 
@@ -34,7 +45,14 @@ export function ChatPanel() {
         )}
 
         {timeline.map((item, i) => (
-          <TimelineItemRenderer key={itemKey(item, i)} item={item} />
+          <TimelineItemRenderer
+            key={itemKey(item, i)}
+            item={item}
+            showToolGroupHeader={
+              item.type === 'toolcall' &&
+              (i === 0 || timeline[i - 1]?.type !== 'toolcall')
+            }
+          />
         ))}
 
         {/* Plan */}
@@ -62,16 +80,33 @@ export function ChatPanel() {
   );
 }
 
-function TimelineItemRenderer({ item }: { item: TimelineItem }) {
+function TimelineItemRenderer({
+  item,
+  showToolGroupHeader,
+}: {
+  item: TimelineItem;
+  showToolGroupHeader: boolean;
+}) {
   if (item.type === 'message') {
     return <MessageBubble message={item.data} />;
   }
-  return <ToolCallCard toolCall={item.data} />;
+  return (
+    <>
+      {showToolGroupHeader && (
+        <div className="px-5 pt-2 pb-0.5">
+          <div className="text-[9px] uppercase tracking-wide text-[var(--text-muted)]">
+            Tools
+          </div>
+        </div>
+      )}
+      <ToolCallCard toolCall={item.data} />
+    </>
+  );
 }
 
 function itemKey(item: TimelineItem, index: number): string {
   if (item.type === 'message') {
-    return `msg-${index}-${item.data.timestamp}`;
+    return `msg-${item.data.id || index}-${item.data.timestamp}`;
   }
   return `tc-${item.data.id}`;
 }

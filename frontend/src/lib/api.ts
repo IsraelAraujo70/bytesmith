@@ -7,7 +7,7 @@ import type {
   ToolCallInfo,
   AvailableCommand,
   TimelineItem,
-} from '../types';
+} from "../types";
 
 // API layer that wraps Wails Go backend calls.
 // When the Go backend is connected (running inside the Wails desktop app),
@@ -15,13 +15,10 @@ import type {
 // calls throw so the UI can handle the "not connected" state gracefully.
 
 function isWailsAvailable(): boolean {
-  return typeof window !== 'undefined' && 'go' in window;
+  return typeof window !== "undefined" && "go" in window;
 }
 
-async function callWails<T>(
-  method: string,
-  ...args: unknown[]
-): Promise<T> {
+async function callWails<T>(method: string, ...args: unknown[]): Promise<T> {
   if (isWailsAvailable()) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any;
@@ -34,36 +31,36 @@ async function callWails<T>(
 
 export async function listAgents(): Promise<AgentInfo[]> {
   try {
-    return await callWails<AgentInfo[]>('ListAvailableAgents');
+    return await callWails<AgentInfo[]>("ListAvailableAgents");
   } catch {
     // Dev fallback: show well-known agents matching the Go backend
     return [
       {
-        name: 'opencode',
-        displayName: 'OpenCode',
-        command: 'opencode',
-        description: 'OpenCode ACP agent',
+        name: "opencode",
+        displayName: "OpenCode",
+        command: "opencode",
+        description: "OpenCode ACP agent",
         installed: false,
       },
       {
-        name: 'claude-code-acp',
-        displayName: 'Claude Code',
-        command: 'claude-code-acp',
-        description: 'Anthropic Claude Code with ACP support',
+        name: "claude-code-acp",
+        displayName: "Claude Code",
+        command: "claude-code-acp",
+        description: "Anthropic Claude Code with ACP support",
         installed: false,
       },
       {
-        name: 'codex-acp',
-        displayName: 'Codex CLI',
-        command: 'codex-acp',
-        description: 'OpenAI Codex CLI with ACP support',
+        name: "codex-app-server",
+        displayName: "Codex App Server",
+        command: "codex",
+        description: "OpenAI Codex app-server (compat mode)",
         installed: false,
       },
       {
-        name: 'gemini',
-        displayName: 'Gemini CLI',
-        command: 'gemini',
-        description: 'Google Gemini CLI with ACP support',
+        name: "gemini",
+        displayName: "Gemini CLI",
+        command: "gemini",
+        description: "Google Gemini CLI with ACP support",
         installed: false,
       },
     ];
@@ -72,20 +69,20 @@ export async function listAgents(): Promise<AgentInfo[]> {
 
 export async function connectAgent(
   agentName: string,
-  cwd: string
+  cwd: string,
 ): Promise<string> {
-  return await callWails<string>('ConnectAgent', agentName, cwd);
+  return await callWails<string>("ConnectAgent", agentName, cwd);
 }
 
 export async function disconnectAgent(connectionID: string): Promise<void> {
-  await callWails<void>('DisconnectAgent', connectionID);
+  await callWails<void>("DisconnectAgent", connectionID);
 }
 
 // --- Connection Management ---
 
 export async function listConnections(): Promise<ConnectionInfo[]> {
   try {
-    return await callWails<ConnectionInfo[]>('ListConnections');
+    return await callWails<ConnectionInfo[]>("ListConnections");
   } catch {
     return [];
   }
@@ -95,16 +92,16 @@ export async function listConnections(): Promise<ConnectionInfo[]> {
 
 export async function createSession(
   connectionID: string,
-  cwd: string
+  cwd: string,
 ): Promise<string> {
-  return await callWails<string>('NewSession', connectionID, cwd);
+  return await callWails<string>("NewSession", connectionID, cwd);
 }
 
 export async function listSessions(
-  connectionID?: string
+  connectionID?: string,
 ): Promise<SessionListItem[]> {
   try {
-    const sessions = await callWails<SessionListItem[]>('ListSessions');
+    const sessions = await callWails<SessionListItem[]>("ListSessions");
     if (!connectionID) {
       return sessions;
     }
@@ -114,9 +111,31 @@ export async function listSessions(
   }
 }
 
-export async function getSessionHistory(
-  sessionID: string
-): Promise<{
+export async function listRemoteSessions(
+  connectionID: string,
+  cwd: string,
+  cursor = "",
+): Promise<{ sessions: SessionListItem[]; nextCursor?: string; unsupported?: boolean }> {
+  return await callWails("ListRemoteSessions", connectionID, cwd, cursor);
+}
+
+export async function loadRemoteSession(
+  connectionID: string,
+  sessionID: string,
+  cwd: string,
+): Promise<void> {
+  await callWails<void>("LoadRemoteSession", connectionID, sessionID, cwd);
+}
+
+export async function resumeSession(
+  connectionID: string,
+  sessionID: string,
+  cwd: string,
+): Promise<void> {
+  await callWails<void>("ResumeSession", connectionID, sessionID, cwd);
+}
+
+export async function getSessionHistory(sessionID: string): Promise<{
   messages: MessageInfo[];
   toolCalls: ToolCallInfo[];
 } | null> {
@@ -124,7 +143,7 @@ export async function getSessionHistory(
     const history = await callWails<{
       messages: MessageInfo[];
       toolCalls: ToolCallInfo[];
-    } | null>('GetSessionHistory', sessionID);
+    } | null>("GetSessionHistory", sessionID);
     return history;
   } catch {
     return null;
@@ -132,10 +151,13 @@ export async function getSessionHistory(
 }
 
 export async function getSessionModels(
-  sessionID: string
+  sessionID: string,
 ): Promise<SessionModelsInfo | null> {
   try {
-    return await callWails<SessionModelsInfo | null>('GetSessionModels', sessionID);
+    return await callWails<SessionModelsInfo | null>(
+      "GetSessionModels",
+      sessionID,
+    );
   } catch {
     return null;
   }
@@ -144,9 +166,32 @@ export async function getSessionModels(
 export async function setSessionModel(
   connectionID: string,
   sessionID: string,
-  modelID: string
+  modelID: string,
 ): Promise<void> {
-  await callWails<void>('SetSessionModel', connectionID, sessionID, modelID);
+  await callWails<void>("SetSessionModel", connectionID, sessionID, modelID);
+}
+
+export async function setSessionMode(
+  connectionID: string,
+  sessionID: string,
+  modeID: string,
+): Promise<void> {
+  await callWails<void>("SetSessionMode", connectionID, sessionID, modeID);
+}
+
+export async function setSessionConfigOption(
+  connectionID: string,
+  sessionID: string,
+  configID: string,
+  value: string,
+): Promise<void> {
+  await callWails<void>(
+    "SetSessionConfigOption",
+    connectionID,
+    sessionID,
+    configID,
+    value
+  );
 }
 
 // --- Prompting ---
@@ -154,34 +199,32 @@ export async function setSessionModel(
 export async function sendPrompt(
   connectionID: string,
   sessionID: string,
-  text: string
+  text: string,
 ): Promise<void> {
-  await callWails<void>('SendPrompt', connectionID, sessionID, text);
+  await callWails<void>("SendPrompt", connectionID, sessionID, text);
 }
 
 export async function cancelPrompt(
   connectionID: string,
-  sessionID: string
+  sessionID: string,
 ): Promise<void> {
-  await callWails<void>('CancelPrompt', connectionID, sessionID);
+  await callWails<void>("CancelPrompt", connectionID, sessionID);
 }
 
 // --- Permissions ---
 
-// Go's RespondPermission takes (connectionID, optionID) — only 2 args.
-// The session/toolCall context is already tracked server-side via the
-// pending permissions channel keyed by connectionID.
 export async function respondPermission(
-  connectionID: string,
-  optionID: string
+  sessionID: string,
+  toolCallID: string,
+  optionID: string,
 ): Promise<void> {
-  await callWails<void>('RespondPermission', connectionID, optionID);
+  await callWails<void>("RespondPermission", sessionID, toolCallID, optionID);
 }
 
 // --- Directory Picker ---
 
 export async function pickDirectory(): Promise<string> {
-  return await callWails<string>('SelectDirectory');
+  return await callWails<string>("SelectDirectory");
 }
 
 // --- Settings ---
@@ -192,7 +235,7 @@ export async function getSettings(): Promise<{
   defaultCwd: string;
   autoApprove: boolean;
 }> {
-  return await callWails('GetSettings');
+  return await callWails("GetSettings");
 }
 
 export async function saveSettings(settings: {
@@ -201,36 +244,47 @@ export async function saveSettings(settings: {
   defaultCwd: string;
   autoApprove: boolean;
 }): Promise<void> {
-  await callWails<void>('SaveSettings', settings);
+  await callWails<void>("SaveSettings", settings);
 }
 
 // --- File System ---
 
 export async function listFiles(
-  dir: string
+  dir: string,
 ): Promise<{ name: string; path: string; isDir: boolean; size: number }[]> {
-  return await callWails('ListFiles', dir);
+  return await callWails("ListFiles", dir);
 }
 
 // --- Utility: build timeline from messages + tool calls ---
 
 export function buildTimeline(
   messages: MessageInfo[],
-  toolCalls: ToolCallInfo[]
+  toolCalls: ToolCallInfo[],
 ): TimelineItem[] {
   const items: TimelineItem[] = [];
 
   for (const m of messages) {
-    items.push({ type: 'message', data: m });
+    items.push({ type: "message", data: m });
   }
   for (const tc of toolCalls) {
-    items.push({ type: 'toolcall', data: tc });
+    items.push({ type: "toolcall", data: tc });
   }
 
   items.sort((a, b) => {
-    const tA = a.type === 'message' ? a.data.timestamp : a.data.timestamp;
-    const tB = b.type === 'message' ? b.data.timestamp : b.data.timestamp;
-    return tA.localeCompare(tB);
+    const tA = a.type === "message" ? a.data.timestamp : a.data.timestamp;
+    const tB = b.type === "message" ? b.data.timestamp : b.data.timestamp;
+    const byTime = tA.localeCompare(tB);
+    if (byTime !== 0) {
+      return byTime;
+    }
+
+    if (a.type !== b.type) {
+      return a.type === "message" ? -1 : 1;
+    }
+
+    const idA = a.type === "message" ? a.data.id : a.data.id;
+    const idB = b.type === "message" ? b.data.id : b.data.id;
+    return idA.localeCompare(idB);
   });
 
   return items;

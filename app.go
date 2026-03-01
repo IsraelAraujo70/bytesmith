@@ -2,20 +2,24 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"bytesmith/internal/acp"
 	"bytesmith/internal/agent"
 	bfs "bytesmith/internal/fs"
+	"bytesmith/internal/integrator"
 	"bytesmith/internal/session"
 	"bytesmith/internal/terminal"
 
+	"github.com/google/uuid"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -40,6 +44,7 @@ type ConnectionInfo struct {
 	AgentName   string   `json:"agentName"`
 	DisplayName string   `json:"displayName"`
 	Sessions    []string `json:"sessions"`
+	Integrator  string   `json:"integrator"`
 }
 
 // SessionHistoryInfo carries the full conversation history for one session.
@@ -56,6 +61,7 @@ type SessionHistoryInfo struct {
 
 // MessageInfo is a single message in a session's conversation.
 type MessageInfo struct {
+	ID        string `json:"id"`
 	Role      string `json:"role"`
 	Content   string `json:"content"`
 	Timestamp string `json:"timestamp"`
@@ -101,6 +107,7 @@ type FileEntry struct {
 // PermissionRequestInfo is emitted to the frontend when an agent asks for
 // permission before performing a sensitive operation.
 type PermissionRequestInfo struct {
+	RequestID    string                 `json:"requestId"`
 	ConnectionID string                 `json:"connectionId"`
 	SessionID    string                 `json:"sessionId"`
 	ToolCallID   string                 `json:"toolCallId"`
@@ -128,6 +135,13 @@ type SessionModelsInfo struct {
 	Models         []SessionModelInfo `json:"models"`
 }
 
+// SessionListPage is a page of remote sessions queried from an integrator.
+type SessionListPage struct {
+	Sessions    []SessionListItem `json:"sessions"`
+	NextCursor  string            `json:"nextCursor,omitempty"`
+	Unsupported bool              `json:"unsupported,omitempty"`
+}
+
 // ---------------------------------------------------------------------------
 // App – the main Wails-bound struct
 // ---------------------------------------------------------------------------
@@ -143,33 +157,46 @@ type App struct {
 	config   *agent.Config
 	fs       *bfs.Provider
 	terminal *terminal.Provider
-	sessions *session.Store
+	sessions session.Store
 
 	// sessionModels stores model options returned by session/new per session.
 	sessionModels   map[string]SessionModelsInfo
 	sessionModelsMu sync.RWMutex
 
-	// pendingPermissions stores channels keyed by connectionID. When the
-	// agent sends a requestPermission request the handler creates a channel,
-	// emits an event to the UI, and blocks. The UI calls RespondPermission
-	// which delivers the chosen optionID through the channel.
-	pendingPermissions   map[string]chan string
-	pendingPermissionsMu sync.Mutex
+	// pendingPermissions stores channels keyed by requestID.
+	// pendingPermissionOrder stores request IDs FIFO by session+toolCall.
+	pendingPermissions     map[string]chan string
+	pendingPermissionOrder map[string][]string
+	pendingPermissionsMu   sync.Mutex
 
 	// activePrompts tracks running prompt goroutines so CancelPrompt can
 	// both cancel the context and send the ACP cancel notification.
 	activePrompts   map[string]context.CancelFunc
 	activePromptsMu sync.Mutex
 
+	// streamMessages aggregates streaming chunks so each turn is stored as a
+	// single final agent message.
+	streamMessages   map[string]*streamMessage
+	streamMessagesMu sync.Mutex
+
 	configPath string
+}
+
+type streamMessage struct {
+	MessageID   string
+	ContentType string
+	Content     strings.Builder
+	StartedAt   time.Time
 }
 
 // NewApp creates a new App application struct.
 func NewApp() *App {
 	return &App{
-		pendingPermissions: make(map[string]chan string),
-		activePrompts:      make(map[string]context.CancelFunc),
-		sessionModels:      make(map[string]SessionModelsInfo),
+		pendingPermissions:     make(map[string]chan string),
+		pendingPermissionOrder: make(map[string][]string),
+		activePrompts:          make(map[string]context.CancelFunc),
+		sessionModels:          make(map[string]SessionModelsInfo),
+		streamMessages:         make(map[string]*streamMessage),
 	}
 }
 
@@ -216,6 +243,9 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(ctx context.Context) {
 	a.terminal.CloseAll()
 	a.manager.DisconnectAll()
+	if a.sessions != nil {
+		_ = a.sessions.Close()
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +331,7 @@ func (a *App) ListConnections() []ConnectionInfo {
 			AgentName:   c.Agent.Name,
 			DisplayName: c.Agent.DisplayName,
 			Sessions:    sessions,
+			Integrator:  c.IntegratorID,
 		})
 	}
 	return result
@@ -326,7 +357,7 @@ func (a *App) NewSession(connectionID, cwd string) (string, error) {
 
 	// Track session locally.
 	a.sessions.Create(sessionID, conn.Agent.Name, connectionID, cwd)
-	conn.Sessions = append(conn.Sessions, sessionID)
+	appendSessionIfMissing(conn, sessionID)
 
 	if result.Models != nil {
 		models := make([]SessionModelInfo, 0, len(result.Models.AvailableModels))
@@ -368,6 +399,7 @@ func (a *App) SendPrompt(connectionID, sessionID, text string) error {
 
 	// Record the user message.
 	a.sessions.AddMessage(sessionID, session.Message{
+		ID:      uuid.NewString(),
 		Role:    "user",
 		Content: text,
 	})
@@ -393,6 +425,7 @@ func (a *App) SendPrompt(connectionID, sessionID, text string) error {
 
 		result, err := conn.Client.Prompt(ctx, sessionID, prompt)
 		if err != nil {
+			a.finalizeStreamMessage(connectionID, sessionID)
 			wailsRuntime.EventsEmit(a.ctx, "agent:error", map[string]string{
 				"connectionId": connectionID,
 				"sessionId":    sessionID,
@@ -401,6 +434,7 @@ func (a *App) SendPrompt(connectionID, sessionID, text string) error {
 			return
 		}
 
+		a.finalizeStreamMessage(connectionID, sessionID)
 		wailsRuntime.EventsEmit(a.ctx, "agent:prompt-done", map[string]string{
 			"connectionId": connectionID,
 			"sessionId":    sessionID,
@@ -440,6 +474,7 @@ func (a *App) GetSessionHistory(sessionID string) *SessionHistoryInfo {
 	messages := make([]MessageInfo, 0, len(rec.Messages))
 	for _, m := range rec.Messages {
 		messages = append(messages, MessageInfo{
+			ID:        m.ID,
 			Role:      m.Role,
 			Content:   m.Content,
 			Timestamp: m.Timestamp.Format(time.RFC3339),
@@ -488,6 +523,105 @@ func (a *App) ListSessions() []SessionListItem {
 	return result
 }
 
+// ListRemoteSessions lists sessions directly from the connected integrator.
+func (a *App) ListRemoteSessions(connectionID, cwd, cursor string) (SessionListPage, error) {
+	conn := a.manager.GetConnection(connectionID)
+	if conn == nil {
+		return SessionListPage{}, fmt.Errorf("connection %q not found", connectionID)
+	}
+
+	if !integrator.ForAgent(conn.Agent.Name).Capabilities().ListSessions {
+		return SessionListPage{Unsupported: true}, nil
+	}
+
+	list, err := conn.Client.ListSessions(context.Background(), cwd, cursor)
+	if err != nil {
+		if strings.Contains(err.Error(), "method not found") || strings.Contains(err.Error(), "unknown variant") {
+			return SessionListPage{Unsupported: true}, nil
+		}
+		return SessionListPage{}, err
+	}
+
+	sessions := make([]SessionListItem, 0, len(list.Sessions))
+	for _, s := range list.Sessions {
+		sessions = append(sessions, SessionListItem{
+			ID:           s.SessionID,
+			AgentName:    conn.Agent.Name,
+			ConnectionID: connectionID,
+			CWD:          s.CWD,
+			CreatedAt:    "",
+			UpdatedAt:    s.UpdatedAt,
+		})
+	}
+
+	return SessionListPage{
+		Sessions:   sessions,
+		NextCursor: list.NextCursor,
+	}, nil
+}
+
+// LoadRemoteSession asks the remote agent to load a session and tracks it locally.
+func (a *App) LoadRemoteSession(connectionID, sessionID, cwd string) error {
+	conn := a.manager.GetConnection(connectionID)
+	if conn == nil {
+		return fmt.Errorf("connection %q not found", connectionID)
+	}
+
+	if !integrator.ForAgent(conn.Agent.Name).Capabilities().LoadSession {
+		return fmt.Errorf("integrator %q does not support session load", conn.Agent.Name)
+	}
+
+	if err := conn.Client.LoadSession(context.Background(), sessionID, cwd, nil); err != nil {
+		return err
+	}
+
+	a.sessions.Create(sessionID, conn.Agent.Name, connectionID, cwd)
+	appendSessionIfMissing(conn, sessionID)
+	return nil
+}
+
+// ResumeSession asks the remote agent to resume a session and tracks it locally.
+func (a *App) ResumeSession(connectionID, sessionID, cwd string) error {
+	conn := a.manager.GetConnection(connectionID)
+	if conn == nil {
+		return fmt.Errorf("connection %q not found", connectionID)
+	}
+
+	caps := integrator.ForAgent(conn.Agent.Name).Capabilities()
+	if !caps.ResumeSession {
+		if !caps.LoadSession {
+			return fmt.Errorf("integrator %q does not support session resume", conn.Agent.Name)
+		}
+		return a.LoadRemoteSession(connectionID, sessionID, cwd)
+	}
+
+	result, err := conn.Client.ResumeSession(context.Background(), sessionID, cwd, nil)
+	if err != nil {
+		return err
+	}
+
+	a.sessions.Create(sessionID, conn.Agent.Name, connectionID, cwd)
+	appendSessionIfMissing(conn, sessionID)
+
+	if result != nil && result.Models != nil {
+		models := make([]SessionModelInfo, 0, len(result.Models.AvailableModels))
+		for _, m := range result.Models.AvailableModels {
+			models = append(models, SessionModelInfo{
+				ModelID: m.ModelID,
+				Name:    m.Name,
+			})
+		}
+		a.sessionModelsMu.Lock()
+		a.sessionModels[sessionID] = SessionModelsInfo{
+			CurrentModelID: result.Models.CurrentModelID,
+			Models:         models,
+		}
+		a.sessionModelsMu.Unlock()
+	}
+
+	return nil
+}
+
 // GetSessionModels returns the known model selection info for a session.
 func (a *App) GetSessionModels(sessionID string) *SessionModelsInfo {
 	a.sessionModelsMu.RLock()
@@ -506,15 +640,14 @@ func (a *App) GetSessionModels(sessionID string) *SessionModelsInfo {
 	return &result
 }
 
-// SetSessionModel updates the current model for a session, when supported by
-// the agent, using session/set_config_option with configId "model".
+// SetSessionModel updates the current model for a session.
 func (a *App) SetSessionModel(connectionID, sessionID, modelID string) error {
 	conn := a.manager.GetConnection(connectionID)
 	if conn == nil {
 		return fmt.Errorf("connection %q not found", connectionID)
 	}
 
-	if err := conn.Client.SetConfigOption(context.Background(), sessionID, "model", modelID); err != nil {
+	if err := conn.Client.SetModel(context.Background(), sessionID, modelID); err != nil {
 		return err
 	}
 
@@ -538,6 +671,24 @@ func (a *App) SetSessionModel(connectionID, sessionID, modelID string) error {
 	return nil
 }
 
+// SetSessionMode updates the current mode for a session.
+func (a *App) SetSessionMode(connectionID, sessionID, modeID string) error {
+	conn := a.manager.GetConnection(connectionID)
+	if conn == nil {
+		return fmt.Errorf("connection %q not found", connectionID)
+	}
+	return conn.Client.SetMode(context.Background(), sessionID, modeID)
+}
+
+// SetSessionConfigOption sets a generic session config option.
+func (a *App) SetSessionConfigOption(connectionID, sessionID, configID, value string) error {
+	conn := a.manager.GetConnection(connectionID)
+	if conn == nil {
+		return fmt.Errorf("connection %q not found", connectionID)
+	}
+	return conn.Client.SetConfigOption(context.Background(), sessionID, configID, value)
+}
+
 // ---------------------------------------------------------------------------
 // Permission handling
 // ---------------------------------------------------------------------------
@@ -545,9 +696,25 @@ func (a *App) SetSessionModel(connectionID, sessionID, modelID string) error {
 // RespondPermission is called by the UI when the user clicks allow/deny on a
 // permission dialog. It unblocks the ACP requestPermission handler which is
 // waiting for the user's decision.
-func (a *App) RespondPermission(connectionID string, optionID string) {
+func (a *App) RespondPermission(sessionID, toolCallID, optionID string) {
+	key := sessionPermissionKey(sessionID, toolCallID)
+
 	a.pendingPermissionsMu.Lock()
-	ch, ok := a.pendingPermissions[connectionID]
+	queue := a.pendingPermissionOrder[key]
+	if len(queue) == 0 {
+		a.pendingPermissionsMu.Unlock()
+		return
+	}
+
+	requestID := queue[0]
+	next := queue[1:]
+	if len(next) == 0 {
+		delete(a.pendingPermissionOrder, key)
+	} else {
+		a.pendingPermissionOrder[key] = next
+	}
+
+	ch, ok := a.pendingPermissions[requestID]
 	a.pendingPermissionsMu.Unlock()
 
 	if ok {
@@ -692,24 +859,36 @@ func (a *App) handleSessionUpdate(connectionID string, params acp.SessionUpdateP
 	switch update.Type {
 	case acp.UpdateAgentMessageChunk:
 		if update.MessageContent != nil {
+			chunkType := update.MessageContent.Type
+			if strings.TrimSpace(chunkType) == "" {
+				chunkType = "text"
+			}
+			a.appendStreamChunk(connectionID, sid, update.MessageContent.Text, chunkType)
+		}
+
+	case acp.UpdateAgentThoughtChunk:
+		if update.MessageContent != nil {
+			a.appendStreamChunk(connectionID, sid, update.MessageContent.Text, "thought")
+		}
+
+	case acp.UpdateUserMessageChunk:
+		if update.MessageContent != nil {
 			a.sessions.AddMessage(sid, session.Message{
-				Role:    "agent",
-				Content: update.MessageContent.Text,
-			})
-			wailsRuntime.EventsEmit(a.ctx, "agent:message", map[string]string{
-				"connectionId": connectionID,
-				"sessionId":    sid,
-				"text":         update.MessageContent.Text,
-				"type":         update.MessageContent.Type,
+				ID:        uuid.NewString(),
+				Role:      "user",
+				Content:   update.MessageContent.Text,
+				Timestamp: time.Now(),
 			})
 		}
 
 	case acp.UpdateToolCall:
+		content := formatToolCallContent(update)
 		a.sessions.AddToolCall(sid, session.ToolCallRecord{
-			ID:     update.ToolCallID,
-			Title:  update.Title,
-			Kind:   update.Kind,
-			Status: update.Status,
+			ID:      update.ToolCallID,
+			Title:   update.Title,
+			Kind:    update.Kind,
+			Status:  update.Status,
+			Content: content,
 		})
 		wailsRuntime.EventsEmit(a.ctx, "agent:toolcall", map[string]interface{}{
 			"connectionId": connectionID,
@@ -718,11 +897,13 @@ func (a *App) handleSessionUpdate(connectionID string, params acp.SessionUpdateP
 			"title":        update.Title,
 			"kind":         update.Kind,
 			"status":       update.Status,
+			"content":      content,
 			"isUpdate":     false,
 		})
 
 	case acp.UpdateToolCallUpdate:
-		a.sessions.UpdateToolCall(sid, update.ToolCallID, update.Status, "")
+		content := formatToolCallContent(update)
+		a.sessions.UpdateToolCall(sid, update.ToolCallID, update.Status, content)
 		wailsRuntime.EventsEmit(a.ctx, "agent:toolcall", map[string]interface{}{
 			"connectionId": connectionID,
 			"sessionId":    sid,
@@ -730,6 +911,7 @@ func (a *App) handleSessionUpdate(connectionID string, params acp.SessionUpdateP
 			"title":        update.Title,
 			"kind":         update.Kind,
 			"status":       update.Status,
+			"content":      content,
 			"isUpdate":     true,
 		})
 
@@ -777,9 +959,12 @@ func (a *App) handleSessionUpdate(connectionID string, params acp.SessionUpdateP
 // until RespondPermission is called.
 func (a *App) handlePermissionRequest(connectionID string, params acp.RequestPermissionParams) acp.RequestPermissionResult {
 	ch := make(chan string, 1)
+	requestID := uuid.NewString()
+	orderKey := sessionPermissionKey(params.SessionID, params.ToolCall.ToolCallID)
 
 	a.pendingPermissionsMu.Lock()
-	a.pendingPermissions[connectionID] = ch
+	a.pendingPermissions[requestID] = ch
+	a.pendingPermissionOrder[orderKey] = append(a.pendingPermissionOrder[orderKey], requestID)
 	a.pendingPermissionsMu.Unlock()
 
 	// Build options for the frontend.
@@ -793,6 +978,7 @@ func (a *App) handlePermissionRequest(connectionID string, params acp.RequestPer
 	}
 
 	wailsRuntime.EventsEmit(a.ctx, "agent:permission", PermissionRequestInfo{
+		RequestID:    requestID,
 		ConnectionID: connectionID,
 		SessionID:    params.SessionID,
 		ToolCallID:   params.ToolCall.ToolCallID,
@@ -806,7 +992,7 @@ func (a *App) handlePermissionRequest(connectionID string, params acp.RequestPer
 
 	// Clean up.
 	a.pendingPermissionsMu.Lock()
-	delete(a.pendingPermissions, connectionID)
+	delete(a.pendingPermissions, requestID)
 	a.pendingPermissionsMu.Unlock()
 
 	if !ok || optionID == "" {
@@ -823,4 +1009,199 @@ func (a *App) handlePermissionRequest(connectionID string, params acp.RequestPer
 			OptionID: optionID,
 		},
 	}
+}
+
+func sessionPermissionKey(sessionID, toolCallID string) string {
+	return sessionID + "::" + toolCallID
+}
+
+func normalizeMessageType(contentType string) string {
+	switch strings.ToLower(strings.TrimSpace(contentType)) {
+	case "thought", "reasoning":
+		return "thought"
+	default:
+		return "text"
+	}
+}
+
+func prettyJSON(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	var parsed any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return strings.TrimSpace(string(raw))
+	}
+
+	formatted, err := json.MarshalIndent(parsed, "", "  ")
+	if err != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	return string(formatted)
+}
+
+func formatToolCallContent(update acp.SessionUpdate) string {
+	sections := make([]string, 0, 6)
+
+	for _, part := range update.ToolContent {
+		switch part.Type {
+		case "content":
+			if part.Content != nil && strings.TrimSpace(part.Content.Text) != "" {
+				sections = append(sections, "Content:\n"+part.Content.Text)
+			}
+		case "diff":
+			var b strings.Builder
+			if strings.TrimSpace(part.Path) != "" {
+				b.WriteString("Diff: " + part.Path + "\n")
+			} else {
+				b.WriteString("Diff:\n")
+			}
+			if part.OldText != "" || part.NewText != "" {
+				b.WriteString("--- old\n")
+				b.WriteString(part.OldText)
+				if !strings.HasSuffix(part.OldText, "\n") {
+					b.WriteString("\n")
+				}
+				b.WriteString("+++ new\n")
+				b.WriteString(part.NewText)
+			}
+			diff := strings.TrimSpace(b.String())
+			if diff != "" {
+				sections = append(sections, diff)
+			}
+		case "terminal":
+			terminalText := ""
+			if part.Content != nil {
+				terminalText = part.Content.Text
+			}
+			switch {
+			case strings.TrimSpace(part.TerminalID) != "" && strings.TrimSpace(terminalText) != "":
+				sections = append(sections, fmt.Sprintf("Terminal (%s):\n%s", part.TerminalID, terminalText))
+			case strings.TrimSpace(part.TerminalID) != "":
+				sections = append(sections, fmt.Sprintf("Terminal: %s", part.TerminalID))
+			case strings.TrimSpace(terminalText) != "":
+				sections = append(sections, "Terminal:\n"+terminalText)
+			}
+		default:
+			if part.Content != nil && strings.TrimSpace(part.Content.Text) != "" {
+				sections = append(sections, part.Content.Text)
+			}
+		}
+	}
+
+	if len(update.Locations) > 0 {
+		lines := make([]string, 0, len(update.Locations))
+		for _, loc := range update.Locations {
+			if loc.Line > 0 {
+				lines = append(lines, fmt.Sprintf("- %s:%d", loc.Path, loc.Line))
+			} else {
+				lines = append(lines, fmt.Sprintf("- %s", loc.Path))
+			}
+		}
+		sections = append(sections, "Locations:\n"+strings.Join(lines, "\n"))
+	}
+
+	if input := prettyJSON(update.RawInput); input != "" {
+		sections = append(sections, "Input:\n"+input)
+	}
+	if output := prettyJSON(update.RawOutput); output != "" {
+		sections = append(sections, "Output:\n"+output)
+	}
+
+	return strings.TrimSpace(strings.Join(sections, "\n\n"))
+}
+
+func (a *App) appendStreamChunk(connectionID, sessionID, text, contentType string) {
+	chunkType := normalizeMessageType(contentType)
+
+	var previous *streamMessage
+
+	a.streamMessagesMu.Lock()
+	stream := a.streamMessages[sessionID]
+	if stream == nil {
+		stream = &streamMessage{
+			MessageID:   uuid.NewString(),
+			ContentType: chunkType,
+			StartedAt:   time.Now(),
+		}
+		a.streamMessages[sessionID] = stream
+	} else if stream.ContentType != chunkType {
+		previous = stream
+		stream = &streamMessage{
+			MessageID:   uuid.NewString(),
+			ContentType: chunkType,
+			StartedAt:   time.Now(),
+		}
+		a.streamMessages[sessionID] = stream
+	}
+	stream.Content.WriteString(text)
+	messageID := stream.MessageID
+	a.streamMessagesMu.Unlock()
+
+	if previous != nil {
+		a.flushStreamMessage(connectionID, sessionID, previous)
+	}
+
+	wailsRuntime.EventsEmit(a.ctx, "agent:message", map[string]interface{}{
+		"connectionId": connectionID,
+		"sessionId":    sessionID,
+		"messageId":    messageID,
+		"text":         text,
+		"type":         chunkType,
+		"isFinal":      false,
+	})
+}
+
+func (a *App) finalizeStreamMessage(connectionID, sessionID string) {
+	a.streamMessagesMu.Lock()
+	stream := a.streamMessages[sessionID]
+	delete(a.streamMessages, sessionID)
+	a.streamMessagesMu.Unlock()
+
+	if stream == nil {
+		return
+	}
+
+	a.flushStreamMessage(connectionID, sessionID, stream)
+}
+
+func (a *App) flushStreamMessage(connectionID, sessionID string, stream *streamMessage) {
+	if stream == nil {
+		return
+	}
+
+	content := stream.Content.String()
+	if content == "" {
+		return
+	}
+	if strings.TrimSpace(content) == "" {
+		return
+	}
+
+	a.sessions.AddMessage(sessionID, session.Message{
+		ID:        stream.MessageID,
+		Role:      "agent",
+		Content:   content,
+		Timestamp: stream.StartedAt,
+	})
+
+	wailsRuntime.EventsEmit(a.ctx, "agent:message", map[string]interface{}{
+		"connectionId": connectionID,
+		"sessionId":    sessionID,
+		"messageId":    stream.MessageID,
+		"text":         "",
+		"type":         normalizeMessageType(stream.ContentType),
+		"isFinal":      true,
+		"content":      content,
+	})
+}
+
+func appendSessionIfMissing(conn *agent.Connection, sessionID string) {
+	for _, existing := range conn.Sessions {
+		if existing == sessionID {
+			return
+		}
+	}
+	conn.Sessions = append(conn.Sessions, sessionID)
 }

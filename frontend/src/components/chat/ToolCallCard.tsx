@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { clsx } from 'clsx';
 import {
   ChevronDown,
@@ -72,11 +72,26 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const status = statusConfig[toolCall.status] || statusConfig.pending;
   const StatusIcon = status.icon;
 
-  const hasDiff = toolCall.content.includes('<<<') || toolCall.content.includes('---');
+  const content = (toolCall.content || '').trim();
+  const hasContent = content.length > 0;
+  const hasDiff = useMemo(
+    () =>
+      /(^@@)/m.test(content) ||
+      /(^\+\+\+ )/m.test(content) ||
+      /(^--- )/m.test(content) ||
+      /(^Diff:)/m.test(content),
+    [content]
+  );
   const isRunning = toolCall.status === 'in_progress';
 
+  useEffect(() => {
+    if (isRunning && hasContent) {
+      setExpanded(true);
+    }
+  }, [isRunning, hasContent]);
+
   return (
-    <div className="mx-5 my-1 animate-fade-in">
+    <div className="mx-5 my-1.5 animate-fade-in">
       <div
         className={clsx(
           'bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-md overflow-hidden transition-all duration-200',
@@ -87,7 +102,7 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
       >
         {/* Header */}
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => hasContent && setExpanded(!expanded)}
           className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-[var(--bg-tertiary)] transition-colors text-left"
         >
           <IconComponent className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
@@ -109,7 +124,7 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
             <span>{status.label}</span>
           </div>
 
-          {toolCall.content && (
+          {hasContent && (
             expanded ? (
               <ChevronDown className="w-3 h-3 text-[var(--text-muted)] shrink-0" />
             ) : (
@@ -119,13 +134,13 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
         </button>
 
         {/* Content */}
-        {expanded && toolCall.content && (
+        {expanded && hasContent && (
           <div className="border-t border-[var(--border-subtle)] px-2.5 py-2 max-h-[300px] overflow-auto">
             {hasDiff ? (
-              <DiffView content={toolCall.content} />
+              <DiffView content={content} />
             ) : (
               <pre className="text-[11px] text-[var(--text-secondary)] whitespace-pre-wrap break-words font-mono leading-relaxed">
-                {toolCall.content}
+                {content}
               </pre>
             )}
           </div>

@@ -11,6 +11,7 @@ export interface ConnectionInfo {
   agentName: string;
   displayName: string;
   sessions: string[];
+  integrator: string;
 }
 
 export interface SessionListItem {
@@ -33,9 +34,13 @@ export interface SessionModelsInfo {
   models: SessionModelInfo[];
 }
 
+export type MessageKind = 'text' | 'thought';
+
 export interface MessageInfo {
+  id: string;
   role: 'user' | 'agent' | 'system';
   content: string;
+  kind?: MessageKind;
   timestamp: string;
 }
 
@@ -55,6 +60,7 @@ export interface PlanEntry {
 }
 
 export interface PermissionRequest {
+  requestId: string;
   connectionId: string;
   sessionId: string;
   toolCallId: string;
@@ -80,8 +86,11 @@ export interface AvailableCommand {
 export interface AgentMessageEvent {
   connectionId: string;
   sessionId: string;
+  messageId: string;
   text: string;
   type: string;
+  isFinal: boolean;
+  content?: string;
 }
 
 export interface AgentToolCallEvent {
@@ -91,6 +100,7 @@ export interface AgentToolCallEvent {
   title: string;
   kind: string;
   status: string;
+  content?: string;
   isUpdate: boolean;
 }
 
