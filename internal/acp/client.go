@@ -953,6 +953,76 @@ func (c *Client) handleRequest(msg JSONRPCMessage) {
 			return
 		}
 
+	case MethodExecCommandApproval:
+		if c.onRequestPermission == nil {
+			c.sendError(msg.ID, ErrCodeMethodNotFound, "no handler for "+msg.Method)
+			return
+		}
+		var params ExecCommandApprovalParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			c.sendError(msg.ID, ErrCodeInvalidParams, "invalid params: "+err.Error())
+			return
+		}
+		req, toResult := buildLegacyExecApprovalBridge(params)
+		res := c.onRequestPermission(req)
+		result = toResult(permissionSelection(res))
+
+	case MethodApplyPatchApproval:
+		if c.onRequestPermission == nil {
+			c.sendError(msg.ID, ErrCodeMethodNotFound, "no handler for "+msg.Method)
+			return
+		}
+		var params ApplyPatchApprovalParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			c.sendError(msg.ID, ErrCodeInvalidParams, "invalid params: "+err.Error())
+			return
+		}
+		req, toResult := buildLegacyPatchApprovalBridge(params)
+		res := c.onRequestPermission(req)
+		result = toResult(permissionSelection(res))
+
+	case MethodItemCommandExecutionRequestApproval:
+		if c.onRequestPermission == nil {
+			c.sendError(msg.ID, ErrCodeMethodNotFound, "no handler for "+msg.Method)
+			return
+		}
+		var params CommandExecutionRequestApprovalParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			c.sendError(msg.ID, ErrCodeInvalidParams, "invalid params: "+err.Error())
+			return
+		}
+		req, toResult := buildV2ExecApprovalBridge(params)
+		res := c.onRequestPermission(req)
+		result = toResult(permissionSelection(res))
+
+	case MethodItemFileChangeRequestApproval:
+		if c.onRequestPermission == nil {
+			c.sendError(msg.ID, ErrCodeMethodNotFound, "no handler for "+msg.Method)
+			return
+		}
+		var params FileChangeRequestApprovalParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			c.sendError(msg.ID, ErrCodeInvalidParams, "invalid params: "+err.Error())
+			return
+		}
+		req, toResult := buildV2FileChangeApprovalBridge(params)
+		res := c.onRequestPermission(req)
+		result = toResult(permissionSelection(res))
+
+	case MethodItemToolRequestUserInput:
+		if c.onRequestPermission == nil {
+			c.sendError(msg.ID, ErrCodeMethodNotFound, "no handler for "+msg.Method)
+			return
+		}
+		var params ToolRequestUserInputParams
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			c.sendError(msg.ID, ErrCodeInvalidParams, "invalid params: "+err.Error())
+			return
+		}
+		req, toResult := buildV2ToolUserInputBridge(params)
+		res := c.onRequestPermission(req)
+		result = toResult(permissionSelection(res))
+
 	case MethodFSReadTextFile:
 		if c.onFSReadTextFile != nil {
 			var params FSReadTextFileParams
@@ -1064,6 +1134,359 @@ func (c *Client) handleRequest(msg JSONRPCMessage) {
 	}
 
 	c.sendResult(msg.ID, result)
+}
+
+func permissionSelection(res RequestPermissionResult) string {
+	if strings.EqualFold(strings.TrimSpace(res.Outcome.Outcome), "selected") {
+		return strings.TrimSpace(res.Outcome.OptionID)
+	}
+	return ""
+}
+
+func buildLegacyExecApprovalBridge(params ExecCommandApprovalParams) (RequestPermissionParams, func(string) any) {
+	options := buildDecisionOptions(nil, []string{"approved", "approved_for_session", "denied"})
+
+	title := firstNonEmpty(
+		ptrString(params.Reason),
+		strings.TrimSpace(strings.Join(params.Command, " ")),
+		"Command execution approval",
+	)
+
+	toolCallID := firstNonEmpty(params.CallID, ptrString(params.ApprovalID))
+	if toolCallID == "" {
+		toolCallID = fmt.Sprintf("exec-approval-%d", time.Now().UnixNano())
+	}
+
+	req := RequestPermissionParams{
+		SessionID: params.ConversationID,
+		ToolCall: ToolCallUpdate{
+			ToolCallID: toolCallID,
+			Title:      title,
+			Kind:       "command_execution",
+			Status:     "pending",
+		},
+		Options: options,
+	}
+
+	return req, func(selected string) any {
+		return ExecCommandApprovalResponse{
+			Decision: normalizeLegacyDecision(selected, options),
+		}
+	}
+}
+
+func buildLegacyPatchApprovalBridge(params ApplyPatchApprovalParams) (RequestPermissionParams, func(string) any) {
+	options := buildDecisionOptions(nil, []string{"approved", "approved_for_session", "denied"})
+
+	title := ptrString(params.Reason)
+	if title == "" {
+		title = fmt.Sprintf("Apply patch (%d file(s))", len(params.FileChanges))
+	}
+
+	toolCallID := firstNonEmpty(params.CallID)
+	if toolCallID == "" {
+		toolCallID = fmt.Sprintf("patch-approval-%d", time.Now().UnixNano())
+	}
+
+	req := RequestPermissionParams{
+		SessionID: params.ConversationID,
+		ToolCall: ToolCallUpdate{
+			ToolCallID: toolCallID,
+			Title:      title,
+			Kind:       "file_change",
+			Status:     "pending",
+		},
+		Options: options,
+	}
+
+	return req, func(selected string) any {
+		return ApplyPatchApprovalResponse{
+			Decision: normalizeLegacyDecision(selected, options),
+		}
+	}
+}
+
+func buildV2ExecApprovalBridge(params CommandExecutionRequestApprovalParams) (RequestPermissionParams, func(string) any) {
+	options := buildDecisionOptions(decisionStringsFromRaw(params.AvailableDecisions), []string{"accept", "acceptForSession", "decline"})
+
+	command := ""
+	if params.Command != nil {
+		command = strings.TrimSpace(*params.Command)
+	}
+
+	title := firstNonEmpty(
+		ptrString(params.Reason),
+		command,
+		"Command execution approval",
+	)
+
+	toolCallID := firstNonEmpty(params.ItemID)
+	if aid := ptrString(params.ApprovalID); aid != "" {
+		if toolCallID == "" {
+			toolCallID = aid
+		} else {
+			toolCallID = toolCallID + ":" + aid
+		}
+	}
+	if toolCallID == "" {
+		toolCallID = fmt.Sprintf("v2-exec-approval-%d", time.Now().UnixNano())
+	}
+
+	req := RequestPermissionParams{
+		SessionID: params.ThreadID,
+		ToolCall: ToolCallUpdate{
+			ToolCallID: toolCallID,
+			Title:      title,
+			Kind:       "command_execution",
+			Status:     "pending",
+		},
+		Options: options,
+	}
+
+	return req, func(selected string) any {
+		return CommandExecutionRequestApprovalResponse{
+			Decision: normalizeV2Decision(selected, options, "decline"),
+		}
+	}
+}
+
+func buildV2FileChangeApprovalBridge(params FileChangeRequestApprovalParams) (RequestPermissionParams, func(string) any) {
+	options := buildDecisionOptions(nil, []string{"accept", "acceptForSession", "decline"})
+
+	title := ptrString(params.Reason)
+	if title == "" {
+		if root := ptrString(params.GrantRoot); root != "" {
+			title = fmt.Sprintf("Allow writes under %s", root)
+		} else {
+			title = "File change approval"
+		}
+	}
+
+	toolCallID := firstNonEmpty(params.ItemID)
+	if toolCallID == "" {
+		toolCallID = fmt.Sprintf("v2-file-approval-%d", time.Now().UnixNano())
+	}
+
+	req := RequestPermissionParams{
+		SessionID: params.ThreadID,
+		ToolCall: ToolCallUpdate{
+			ToolCallID: toolCallID,
+			Title:      title,
+			Kind:       "file_change",
+			Status:     "pending",
+		},
+		Options: options,
+	}
+
+	return req, func(selected string) any {
+		return FileChangeRequestApprovalResponse{
+			Decision: normalizeV2Decision(selected, options, "decline"),
+		}
+	}
+}
+
+func buildV2ToolUserInputBridge(params ToolRequestUserInputParams) (RequestPermissionParams, func(string) any) {
+	toolCallID := firstNonEmpty(params.ItemID)
+	if toolCallID == "" {
+		toolCallID = fmt.Sprintf("v2-user-input-%d", time.Now().UnixNano())
+	}
+
+	title := "User input required"
+	options := []PermissionOption{
+		{
+			OptionID: "cancel",
+			Name:     "Cancel",
+			Kind:     "reject_once",
+		},
+	}
+
+	if len(params.Questions) > 0 {
+		q := params.Questions[0]
+		title = firstNonEmpty(strings.TrimSpace(q.Header), strings.TrimSpace(q.Question), title)
+		built := make([]PermissionOption, 0, len(q.Options))
+		for _, opt := range q.Options {
+			label := strings.TrimSpace(opt.Label)
+			if label == "" {
+				continue
+			}
+			built = append(built, PermissionOption{
+				OptionID: label,
+				Name:     label,
+				Kind:     "allow_once",
+			})
+		}
+		if len(built) > 0 {
+			options = built
+		}
+	}
+
+	req := RequestPermissionParams{
+		SessionID: params.ThreadID,
+		ToolCall: ToolCallUpdate{
+			ToolCallID: toolCallID,
+			Title:      title,
+			Kind:       "user_input",
+			Status:     "pending",
+		},
+		Options: options,
+	}
+
+	return req, func(selected string) any {
+		selected = strings.TrimSpace(selected)
+		answers := make(map[string]ToolRequestUserInputAnswer)
+		if selected == "" || strings.EqualFold(selected, "cancel") {
+			return ToolRequestUserInputResponse{Answers: answers}
+		}
+
+		for _, q := range params.Questions {
+			choice := selected
+			if choice == "" && len(q.Options) > 0 {
+				choice = strings.TrimSpace(q.Options[0].Label)
+			}
+			if choice == "" {
+				continue
+			}
+			answers[q.ID] = ToolRequestUserInputAnswer{Answers: []string{choice}}
+		}
+
+		return ToolRequestUserInputResponse{Answers: answers}
+	}
+}
+
+func buildDecisionOptions(decisions, fallback []string) []PermissionOption {
+	raw := decisions
+	if len(raw) == 0 {
+		raw = fallback
+	}
+
+	seen := make(map[string]struct{}, len(raw))
+	options := make([]PermissionOption, 0, len(raw))
+	for _, d := range raw {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		if _, ok := seen[d]; ok {
+			continue
+		}
+		seen[d] = struct{}{}
+		name, kind := decisionDisplay(d)
+		options = append(options, PermissionOption{
+			OptionID: d,
+			Name:     name,
+			Kind:     kind,
+		})
+	}
+	return options
+}
+
+func decisionStringsFromRaw(raws []json.RawMessage) []string {
+	decisions := make([]string, 0, len(raws))
+	for _, raw := range raws {
+		var text string
+		if err := json.Unmarshal(raw, &text); err == nil && strings.TrimSpace(text) != "" {
+			decisions = append(decisions, text)
+			continue
+		}
+
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &obj); err == nil {
+			for key := range obj {
+				key = strings.TrimSpace(key)
+				if key != "" {
+					decisions = append(decisions, key)
+				}
+			}
+		}
+	}
+	return decisions
+}
+
+func decisionDisplay(decision string) (name, kind string) {
+	switch decision {
+	case "approved", "accept":
+		return "Allow", "allow_once"
+	case "approved_for_session", "acceptForSession":
+		return "Always Allow", "allow_always"
+	case "denied", "decline":
+		return "Reject", "reject_once"
+	case "abort", "cancel":
+		return "Cancel", "reject_once"
+	case "acceptWithExecpolicyAmendment":
+		return "Allow + Policy", "allow_always"
+	case "applyNetworkPolicyAmendment":
+		return "Allow + Network Rule", "allow_always"
+	default:
+		lower := strings.ToLower(decision)
+		if strings.Contains(lower, "accept") || strings.Contains(lower, "approv") {
+			return decision, "allow_once"
+		}
+		return decision, "reject_once"
+	}
+}
+
+func normalizeLegacyDecision(selected string, options []PermissionOption) string {
+	switch strings.TrimSpace(selected) {
+	case "approved", "accept":
+		return "approved"
+	case "approved_for_session", "acceptForSession":
+		return "approved_for_session"
+	case "abort", "cancel":
+		return "abort"
+	case "denied", "decline":
+		return "denied"
+	}
+	if optionExists(options, selected) {
+		return selected
+	}
+	return "denied"
+}
+
+func normalizeV2Decision(selected string, options []PermissionOption, fallback string) string {
+	switch strings.TrimSpace(selected) {
+	case "approved", "accept":
+		return "accept"
+	case "approved_for_session", "acceptForSession":
+		return "acceptForSession"
+	case "abort", "cancel":
+		return "cancel"
+	case "denied", "decline":
+		return "decline"
+	}
+	if optionExists(options, selected) {
+		return selected
+	}
+	return fallback
+}
+
+func optionExists(options []PermissionOption, optionID string) bool {
+	optionID = strings.TrimSpace(optionID)
+	if optionID == "" {
+		return false
+	}
+	for _, opt := range options {
+		if strings.TrimSpace(opt.OptionID) == optionID {
+			return true
+		}
+	}
+	return false
+}
+
+func ptrString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return strings.TrimSpace(*s)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // sendResult sends a successful JSON-RPC response.
