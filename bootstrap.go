@@ -18,13 +18,13 @@ func run() {
 func appOptions(app *App) *options.App {
 	return &options.App{
 		Title:            "ByteSmith",
-		Width:            1280,
-		Height:           800,
+		Width:            1920,
+		Height:           1080,
 		MinWidth:         800,
 		MinHeight:        600,
 		DisableResize:    false,
 		Frameless:        false,
-		WindowStartState: options.Normal,
+		WindowStartState: options.Maximised,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

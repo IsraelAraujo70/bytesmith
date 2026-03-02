@@ -10,6 +10,7 @@ import (
 	bfs "bytesmith/internal/fs"
 	"bytesmith/internal/session"
 	"bytesmith/internal/terminal"
+	"bytesmith/internal/uixterm"
 )
 
 // ---------------------------------------------------------------------------
@@ -170,6 +171,13 @@ type ResumeHistoricalResult struct {
 	Reason       string `json:"reason,omitempty"`
 }
 
+// EmbeddedTerminalInfo is metadata for one UI terminal tab.
+type EmbeddedTerminalInfo struct {
+	ID    string `json:"id"`
+	CWD   string `json:"cwd"`
+	Shell string `json:"shell"`
+}
+
 // ---------------------------------------------------------------------------
 // App – the main Wails-bound struct
 // ---------------------------------------------------------------------------
@@ -185,6 +193,7 @@ type App struct {
 	config   *agent.Config
 	fs       *bfs.Provider
 	terminal *terminal.Provider
+	uiTerm   *uixterm.Manager
 	sessions session.Store
 
 	// sessionModels stores model options returned by session/new per session.

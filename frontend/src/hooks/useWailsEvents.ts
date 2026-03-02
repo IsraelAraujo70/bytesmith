@@ -12,6 +12,8 @@ import type {
   AgentModesEvent,
   MessageKind,
   PermissionRequest,
+  UITerminalOutputEvent,
+  UITerminalExitEvent,
 } from '../types';
 
 function mapMessageKind(type: string): MessageKind {
@@ -34,6 +36,8 @@ export function useWailsEvents() {
     setSessionModels,
     setSessionModes,
     addPermissionRequest,
+    appendTerminalOutput,
+    markTerminalExited,
     setSessionLoading,
     setError,
   } = useAppStore();
@@ -151,6 +155,16 @@ export function useWailsEvents() {
       setSessionLoading(data.connectionId, data.sessionId, false);
     });
 
+    // Embedded terminal streaming output
+    EventsOn('ui:terminal-output', (data: UITerminalOutputEvent) => {
+      appendTerminalOutput(data.terminalId, data.data || '');
+    });
+
+    // Embedded terminal lifecycle
+    EventsOn('ui:terminal-exit', (data: UITerminalExitEvent) => {
+      markTerminalExited(data.terminalId, data.exitCode);
+    });
+
     return () => {
       EventsOff('agent:message');
       EventsOff('agent:toolcall');
@@ -161,6 +175,8 @@ export function useWailsEvents() {
       EventsOff('agent:permission');
       EventsOff('agent:prompt-done');
       EventsOff('agent:error');
+      EventsOff('ui:terminal-output');
+      EventsOff('ui:terminal-exit');
     };
   }, [
     activeSession,
@@ -173,6 +189,8 @@ export function useWailsEvents() {
     setSessionModels,
     setSessionModes,
     addPermissionRequest,
+    appendTerminalOutput,
+    markTerminalExited,
     setSessionLoading,
     setError,
   ]);

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Cpu, Folder, WifiOff, Palette, ChevronUp, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Cpu, Folder, WifiOff, Palette, ChevronUp, ArrowLeft, ArrowRight, Terminal } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAppStore } from '../../stores/appStore';
 import { themes } from '../../lib/themes';
 import { openSessionView } from '../../lib/sessionLoader';
+import { createEmbeddedTerminal } from '../../lib/api';
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -38,6 +39,10 @@ export function StatusBar() {
     setLoading,
     setError,
     cwd,
+    terminalPanelOpen,
+    setTerminalPanelOpen,
+    terminals,
+    addTerminal,
     models,
     currentModelId,
     themeId,
@@ -93,6 +98,27 @@ export function StatusBar() {
     });
   }, [goForwardSession]);
 
+  const handleOpenTerminal = useCallback(async () => {
+    if (terminals.length > 0) {
+      setTerminalPanelOpen(true);
+      return;
+    }
+
+    if (!cwd || !cwd.trim()) {
+      setError('Select a working directory before opening the terminal.');
+      return;
+    }
+
+    try {
+      const created = await createEmbeddedTerminal(cwd);
+      addTerminal(created);
+      setTerminalPanelOpen(true);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      setError(`Failed to open terminal: ${reason}`);
+    }
+  }, [addTerminal, cwd, setError, setTerminalPanelOpen, terminals.length]);
+
   // Close theme picker on click outside
   useEffect(() => {
     if (!showThemePicker) return;
@@ -130,12 +156,15 @@ export function StatusBar() {
       } else if (event.key === ']') {
         event.preventDefault();
         void handleForward();
+      } else if (event.key.toLowerCase() === 'j') {
+        event.preventDefault();
+        void handleOpenTerminal();
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleBack, handleForward]);
+  }, [handleBack, handleForward, handleOpenTerminal]);
 
   return (
     <div className="relative flex items-center justify-between h-6 px-3 bg-[var(--bg-secondary)] border-t border-[var(--border-subtle)] text-[10px] text-[var(--text-muted)] select-none">
@@ -224,6 +253,24 @@ export function StatusBar() {
             {activeSession.sessionID.slice(0, 8)}
           </span>
         )}
+
+        <button
+          onClick={() => {
+            void handleOpenTerminal();
+          }}
+          className={clsx(
+            'flex items-center gap-1 px-1.5 py-0.5 rounded border transition-colors',
+            terminalPanelOpen
+              ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-muted)]'
+              : 'border-[var(--border-subtle)] hover:border-[var(--accent)] hover:text-[var(--accent)]'
+          )}
+          title="Open Terminal (Ctrl+J / Cmd+J)"
+        >
+          <Terminal className="w-2.5 h-2.5" />
+          <kbd className="hidden sm:inline px-1 py-px rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[8px] text-[var(--text-muted)] font-mono">
+            ⌘J
+          </kbd>
+        </button>
 
         {/* Theme picker */}
         <button

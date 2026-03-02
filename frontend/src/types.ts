@@ -115,6 +115,18 @@ export interface AvailableCommand {
   hint?: string;
 }
 
+export interface EmbeddedTerminalSession {
+  id: string;
+  cwd: string;
+  shell: string;
+}
+
+export interface EmbeddedTerminalTab extends EmbeddedTerminalSession {
+  buffer: string;
+  exited: boolean;
+  exitCode?: number;
+}
+
 // Events from Go backend — field names must match Go map keys exactly.
 // Go uses camelCase JSON keys: connectionId, sessionId, toolCallId, etc.
 export interface AgentMessageEvent {
@@ -176,6 +188,16 @@ export interface AgentModesEvent {
   sessionId: string;
   currentModeId: string;
   modes: SessionModeInfo[];
+}
+
+export interface UITerminalOutputEvent {
+  terminalId: string;
+  data: string;
+}
+
+export interface UITerminalExitEvent {
+  terminalId: string;
+  exitCode: number;
 }
 
 // Timeline item is a union for rendering chat + tool calls in order

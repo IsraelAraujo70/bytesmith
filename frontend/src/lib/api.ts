@@ -8,6 +8,7 @@ import type {
   MessageInfo,
   ToolCallInfo,
   AvailableCommand,
+  EmbeddedTerminalSession,
   TimelineItem,
 } from "../types";
 
@@ -260,6 +261,33 @@ export async function listFiles(
   dir: string,
 ): Promise<{ name: string; path: string; isDir: boolean; size: number }[]> {
   return await callWails("ListFiles", dir);
+}
+
+// --- Embedded terminal ---
+
+export async function createEmbeddedTerminal(
+  cwd: string,
+): Promise<EmbeddedTerminalSession> {
+  return await callWails<EmbeddedTerminalSession>("CreateEmbeddedTerminal", cwd);
+}
+
+export async function writeEmbeddedTerminal(
+  terminalID: string,
+  data: string,
+): Promise<void> {
+  await callWails<void>("WriteEmbeddedTerminal", terminalID, data);
+}
+
+export async function resizeEmbeddedTerminal(
+  terminalID: string,
+  cols: number,
+  rows: number,
+): Promise<void> {
+  await callWails<void>("ResizeEmbeddedTerminal", terminalID, cols, rows);
+}
+
+export async function closeEmbeddedTerminal(terminalID: string): Promise<void> {
+  await callWails<void>("CloseEmbeddedTerminal", terminalID);
 }
 
 // --- Utility: build timeline from messages + tool calls ---

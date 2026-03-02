@@ -10,6 +10,8 @@ import type {
   PlanEntry,
   PermissionRequest,
   AvailableCommand,
+  EmbeddedTerminalSession,
+  EmbeddedTerminalTab,
   TimelineItem,
 } from '../types';
 import { buildTimeline } from '../lib/api';
@@ -105,6 +107,17 @@ interface AppState {
   // Working directory
   cwd: string;
   setCwd: (cwd: string) => void;
+
+  // Embedded terminal
+  terminalPanelOpen: boolean;
+  setTerminalPanelOpen: (open: boolean) => void;
+  terminals: EmbeddedTerminalTab[];
+  activeTerminalId: string | null;
+  addTerminal: (terminal: EmbeddedTerminalSession) => void;
+  removeTerminal: (terminalId: string) => void;
+  setActiveTerminal: (terminalId: string | null) => void;
+  appendTerminalOutput: (terminalId: string, data: string) => void;
+  markTerminalExited: (terminalId: string, exitCode: number) => void;
 
   // Messages
   messages: MessageInfo[];
@@ -285,6 +298,73 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Working directory
   cwd: '',
   setCwd: (cwd) => set({ cwd }),
+
+  // Embedded terminal
+  terminalPanelOpen: false,
+  setTerminalPanelOpen: (terminalPanelOpen) => set({ terminalPanelOpen }),
+  terminals: [],
+  activeTerminalId: null,
+  addTerminal: (terminal) =>
+    set((s) => {
+      const exists = s.terminals.some((t) => t.id === terminal.id);
+      if (exists) {
+        return {
+          terminalPanelOpen: true,
+          activeTerminalId: terminal.id,
+        };
+      }
+
+      return {
+        terminalPanelOpen: true,
+        activeTerminalId: terminal.id,
+        terminals: [
+          ...s.terminals,
+          {
+            ...terminal,
+            buffer: '',
+            exited: false,
+          },
+        ],
+      };
+    }),
+  removeTerminal: (terminalId) =>
+    set((s) => {
+      const next = s.terminals.filter((t) => t.id !== terminalId);
+      let activeTerminalId = s.activeTerminalId;
+      if (activeTerminalId === terminalId) {
+        activeTerminalId = next.length > 0 ? next[next.length - 1].id : null;
+      }
+
+      return {
+        terminals: next,
+        activeTerminalId,
+        terminalPanelOpen: next.length > 0 ? s.terminalPanelOpen : false,
+      };
+    }),
+  setActiveTerminal: (activeTerminalId) => set({ activeTerminalId }),
+  appendTerminalOutput: (terminalId, data) =>
+    set((s) => ({
+      terminals: s.terminals.map((t) =>
+        t.id === terminalId
+          ? {
+              ...t,
+              buffer: t.buffer + data,
+            }
+          : t
+      ),
+    })),
+  markTerminalExited: (terminalId, exitCode) =>
+    set((s) => ({
+      terminals: s.terminals.map((t) =>
+        t.id === terminalId
+          ? {
+              ...t,
+              exited: true,
+              exitCode,
+            }
+          : t
+      ),
+    })),
 
   // Messages
   messages: [],

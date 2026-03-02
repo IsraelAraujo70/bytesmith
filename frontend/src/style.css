@@ -251,3 +251,13 @@ body {
 .diff-hunk {
   color: var(--accent);
 }
+
+/* ─── Embedded terminal ─────────────────────────────────────── */
+.bytesmith-terminal .xterm {
+  height: 100%;
+  padding: 0.35rem 0.5rem;
+}
+
+.bytesmith-terminal .xterm-viewport {
+  background: transparent !important;
+}

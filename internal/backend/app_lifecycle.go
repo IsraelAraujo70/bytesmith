@@ -8,6 +8,7 @@ import (
 	bfs "bytesmith/internal/fs"
 	"bytesmith/internal/session"
 	"bytesmith/internal/terminal"
+	"bytesmith/internal/uixterm"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -47,6 +48,7 @@ func (a *App) initSubsystems() {
 	a.manager = agent.NewManager(a.config)
 	a.fs = bfs.NewProvider()
 	a.terminal = terminal.NewProvider()
+	a.uiTerm = uixterm.NewManager()
 	a.sessions = session.NewStore()
 }
 
@@ -65,6 +67,20 @@ func (a *App) wireRuntimeEvents() {
 			"data":       data,
 		})
 	})
+
+	a.uiTerm.OnOutput(func(terminalID string, data string) {
+		wailsRuntime.EventsEmit(a.ctx, "ui:terminal-output", map[string]string{
+			"terminalId": terminalID,
+			"data":       data,
+		})
+	})
+
+	a.uiTerm.OnExit(func(terminalID string, exitCode int) {
+		wailsRuntime.EventsEmit(a.ctx, "ui:terminal-exit", map[string]interface{}{
+			"terminalId": terminalID,
+			"exitCode":   exitCode,
+		})
+	})
 }
 
 // Shutdown is called by the Wails adapter when the application is closing.
@@ -72,6 +88,9 @@ func (a *App) wireRuntimeEvents() {
 func (a *App) Shutdown(ctx context.Context) {
 	_ = ctx
 	a.terminal.CloseAll()
+	if a.uiTerm != nil {
+		a.uiTerm.CloseAll()
+	}
 	a.manager.DisconnectAll()
 	if a.sessions != nil {
 		_ = a.sessions.Close()
