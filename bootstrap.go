@@ -30,6 +30,7 @@ func appOptions(app *App) *options.App {
 		},
 		BackgroundColour: &options.RGBA{R: 24, G: 24, B: 27, A: 1},
 		OnStartup:        app.startup,
+		OnDomReady:       app.domReady,
 		OnShutdown:       app.shutdown,
 		Bind: []interface{}{
 			app,
