@@ -42,7 +42,7 @@ export async function listAgents(): Promise<AgentInfo[]> {
         name: "opencode",
         displayName: "OpenCode",
         command: "opencode",
-        description: "OpenCode ACP agent",
+        description: "OpenCode local server",
         installed: false,
       },
       {

@@ -1,6 +1,6 @@
 package integrator
 
-// Capabilities describes what an integrator supports over ACP.
+// Capabilities describes what an integrator supports.
 type Capabilities struct {
 	ListSessions    bool
 	LoadSession     bool
@@ -10,7 +10,7 @@ type Capabilities struct {
 	SetConfigOption bool
 }
 
-// AgentServer is a lightweight adapter descriptor for an ACP integrator.
+// AgentServer is a lightweight adapter descriptor for a supported integrator.
 type AgentServer interface {
 	ID() string
 	DisplayName() string
@@ -60,16 +60,16 @@ var (
 			SetConfigOption: false,
 		},
 	}
-	defaultACP = adapter{
-		id:          "acp-generic",
-		displayName: "Generic ACP",
+	unknown = adapter{
+		id:          "unknown",
+		displayName: "Unknown",
 		capabilities: Capabilities{
-			ListSessions:    true,
-			LoadSession:     true,
-			ResumeSession:   true,
-			SetMode:         true,
-			SetModel:        true,
-			SetConfigOption: true,
+			ListSessions:    false,
+			LoadSession:     false,
+			ResumeSession:   false,
+			SetMode:         false,
+			SetModel:        false,
+			SetConfigOption: false,
 		},
 	}
 )
@@ -82,6 +82,6 @@ func ForAgent(agentName string) AgentServer {
 	case "codex-app-server":
 		return codex
 	default:
-		return defaultACP
+		return unknown
 	}
 }

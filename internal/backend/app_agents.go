@@ -58,8 +58,8 @@ func (a *App) ListInstalledAgents() []AgentInfo {
 	return result
 }
 
-// ConnectAgent starts an agent subprocess, performs the ACP handshake, wires
-// up all callbacks, and returns the connection ID.
+// ConnectAgent starts/attaches an agent runtime, wires callbacks, and returns
+// the connection ID.
 func (a *App) ConnectAgent(agentName, cwd string) (string, error) {
 	conn, err := a.manager.Connect(agentName, cwd)
 	if err != nil {

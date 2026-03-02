@@ -16,7 +16,7 @@ import (
 // Internal: connection wiring
 // ---------------------------------------------------------------------------
 
-// wireConnection registers all ACP client callbacks on a newly created
+// wireConnection registers all runtime callbacks on a newly created
 // connection so that session updates, permission requests, FS operations,
 // and terminal operations are correctly routed.
 func (a *App) wireConnection(conn *agent.Connection) {
@@ -59,7 +59,7 @@ func (a *App) wireConnection(conn *agent.Connection) {
 
 	// --- Forward stderr to frontend ---
 	go func() {
-		for line := range conn.Transport.StderrCh() {
+		for line := range conn.Client.StderrCh() {
 			wailsRuntime.EventsEmit(a.ctx, "agent:stderr", map[string]string{
 				"connectionId": connID,
 				"line":         line,
@@ -72,7 +72,7 @@ func (a *App) wireConnection(conn *agent.Connection) {
 // Internal: session update routing
 // ---------------------------------------------------------------------------
 
-// handleSessionUpdate dispatches an incoming ACP session update notification
+// handleSessionUpdate dispatches an incoming session update notification
 // to the appropriate Wails event and records data in the session store.
 func (a *App) handleSessionUpdate(connectionID string, params acp.SessionUpdateParams) {
 	update := params.Update

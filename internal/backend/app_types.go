@@ -19,7 +19,7 @@ import (
 // code generator produces clean interfaces.
 // ---------------------------------------------------------------------------
 
-// AgentInfo describes an ACP agent and whether it is installed locally.
+// AgentInfo describes a supported agent runtime and whether it is installed locally.
 type AgentInfo struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName"`
