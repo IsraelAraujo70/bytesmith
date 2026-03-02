@@ -48,6 +48,7 @@ type OpenCodeClient struct {
 	sessionCWD   map[string]string
 	toolCallSeen map[string]map[string]bool
 	sessionModel map[string]openCodeModelRef
+	sessionMode  map[string]string
 
 	promptMu      sync.Mutex
 	promptWaiters map[string][]chan string
@@ -85,6 +86,7 @@ func NewOpenCode(baseURL, defaultCWD string) (*OpenCodeClient, error) {
 		sessionCWD:    make(map[string]string),
 		toolCallSeen:  make(map[string]map[string]bool),
 		sessionModel:  make(map[string]openCodeModelRef),
+		sessionMode:   make(map[string]string),
 		promptWaiters: make(map[string][]chan string),
 	}
 
@@ -115,10 +117,15 @@ func (c *OpenCodeClient) NewSession(ctx context.Context, cwd string, _ []acp.MCP
 	finalCWD := resolveSessionDir(cwd, resp.Directory, c.defaultCWD)
 	c.trackSession(resp.ID, finalCWD)
 	models, _ := c.loadModels(ctx, finalCWD)
+	modes, _ := c.loadModes(ctx, finalCWD)
+	if modes != nil {
+		c.setSessionMode(resp.ID, modes.CurrentModeID)
+	}
 
 	return &acp.SessionNewResult{
 		SessionID: resp.ID,
 		Models:    models,
+		Modes:     modes,
 	}, nil
 }
 
@@ -130,8 +137,16 @@ func (c *OpenCodeClient) LoadSession(ctx context.Context, sessionID, cwd string,
 	}
 	finalCWD := resolveSessionDir(cwd, resp.Directory, c.defaultCWD)
 	c.trackSession(sessionID, finalCWD)
-	if model, ok := c.loadSessionModel(ctx, sessionID, finalCWD); ok {
+	model, modeID, okModel, okMode := c.loadSessionState(ctx, sessionID, finalCWD)
+	if okModel {
 		c.setSessionModel(sessionID, model)
+	} else {
+		c.setSessionModel(sessionID, openCodeModelRef{})
+	}
+	if okMode {
+		c.setSessionMode(sessionID, modeID)
+	} else {
+		c.setSessionMode(sessionID, "")
 	}
 	return nil
 }
@@ -150,9 +165,19 @@ func (c *OpenCodeClient) ResumeSession(ctx context.Context, sessionID, cwd strin
 			}
 		}
 	}
+	modes, _ := c.loadModes(ctx, finalCWD)
+	if modes != nil {
+		if modeID, ok := c.getSessionMode(sessionID); ok {
+			if resolved := resolveModeID(modes.AvailableModes, modeID); resolved != "" {
+				modes.CurrentModeID = resolved
+			}
+		}
+		c.setSessionMode(sessionID, modes.CurrentModeID)
+	}
 	return &acp.SessionResumeResult{
 		SessionID: sessionID,
 		Models:    models,
+		Modes:     modes,
 	}, nil
 }
 
@@ -212,6 +237,9 @@ func (c *OpenCodeClient) Prompt(ctx context.Context, sessionID string, prompt []
 			"modelID":    model.ModelID,
 		}
 	}
+	if modeID, ok := c.getSessionMode(sessionID); ok {
+		payload["agent"] = modeID
+	}
 
 	path := fmt.Sprintf("/session/%s/message", url.PathEscape(sessionID))
 	if err := c.requestJSON(ctx, http.MethodPost, path, directoryQuery(cwd), payload, nil); err != nil {
@@ -239,10 +267,23 @@ func (c *OpenCodeClient) Cancel(sessionID string) error {
 }
 
 func (c *OpenCodeClient) SetMode(ctx context.Context, sessionID, mode string) error {
-	cwd := c.sessionDirectory(sessionID)
-	if err := c.runCommand(ctx, sessionID, cwd, "mode", mode); err != nil {
-		return fmt.Errorf("session/set_mode unsupported by opencode server: %w", err)
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		return fmt.Errorf("mode id is required")
 	}
+	cwd := c.sessionDirectory(sessionID)
+	modes, err := c.loadModes(ctx, cwd)
+	if err != nil {
+		return fmt.Errorf("failed to load available modes: %w", err)
+	}
+	if modes == nil || len(modes.AvailableModes) == 0 {
+		return fmt.Errorf("no modes available for current opencode server")
+	}
+	resolved := resolveModeID(modes.AvailableModes, mode)
+	if resolved == "" {
+		return fmt.Errorf("mode not available for current opencode server: %s", mode)
+	}
+	c.setSessionMode(sessionID, resolved)
 	return nil
 }
 
@@ -763,6 +804,54 @@ func (c *OpenCodeClient) loadModels(ctx context.Context, cwd string) (*acp.Sessi
 	}, nil
 }
 
+func (c *OpenCodeClient) loadModes(ctx context.Context, cwd string) (*acp.SessionModesState, error) {
+	agents, err := c.fetchAgents(ctx, cwd)
+	if err != nil {
+		return nil, err
+	}
+
+	available := make([]acp.SessionMode, 0, len(agents))
+	seen := make(map[string]bool)
+	for _, agent := range agents {
+		id := strings.TrimSpace(agent.Name)
+		if id == "" {
+			continue
+		}
+		mode := strings.ToLower(strings.TrimSpace(agent.Mode))
+		if mode == "subagent" || agent.Hidden {
+			continue
+		}
+		key := strings.ToLower(id)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		available = append(available, acp.SessionMode{
+			ID:          id,
+			Name:        id,
+			Description: strings.TrimSpace(agent.Description),
+		})
+	}
+
+	if len(available) == 0 {
+		return nil, nil
+	}
+
+	current := available[0].ID
+	return &acp.SessionModesState{
+		CurrentModeID:  current,
+		AvailableModes: available,
+	}, nil
+}
+
+func (c *OpenCodeClient) fetchAgents(ctx context.Context, cwd string) ([]openCodeAgent, error) {
+	var agents []openCodeAgent
+	if err := c.requestJSON(ctx, http.MethodGet, "/agent", directoryQuery(cwd), nil, &agents); err != nil {
+		return nil, err
+	}
+	return agents, nil
+}
+
 func (c *OpenCodeClient) fetchProviders(ctx context.Context, cwd string) (openCodeProvidersResponse, error) {
 	var providersResp openCodeProvidersResponse
 	configErr := c.requestJSON(ctx, http.MethodGet, "/config/providers", directoryQuery(cwd), nil, &providersResp)
@@ -784,30 +873,48 @@ func (c *OpenCodeClient) fetchProviders(ctx context.Context, cwd string) (openCo
 	}, nil
 }
 
-func (c *OpenCodeClient) loadSessionModel(ctx context.Context, sessionID, cwd string) (openCodeModelRef, bool) {
+func (c *OpenCodeClient) loadSessionState(ctx context.Context, sessionID, cwd string) (openCodeModelRef, string, bool, bool) {
 	path := fmt.Sprintf("/session/%s/message", url.PathEscape(sessionID))
 	var messages []openCodeMessageWithParts
 	if err := c.requestJSON(ctx, http.MethodGet, path, directoryQuery(cwd), nil, &messages); err != nil {
-		return openCodeModelRef{}, false
+		return openCodeModelRef{}, "", false, false
 	}
+
+	model := openCodeModelRef{}
+	modeID := ""
+	hasModel := false
+	hasMode := false
 
 	for idx := len(messages) - 1; idx >= 0; idx-- {
 		info := messages[idx].Info
 		if !strings.EqualFold(strings.TrimSpace(info.Role), "user") {
 			continue
 		}
-		providerID := strings.TrimSpace(info.Model.ProviderID)
-		modelID := strings.TrimSpace(info.Model.ModelID)
-		if providerID == "" || modelID == "" {
-			continue
+
+		if !hasModel {
+			providerID := strings.TrimSpace(info.Model.ProviderID)
+			modelID := strings.TrimSpace(info.Model.ModelID)
+			if providerID != "" && modelID != "" {
+				model = openCodeModelRef{
+					ProviderID: providerID,
+					ModelID:    modelID,
+				}
+				hasModel = true
+			}
 		}
-		return openCodeModelRef{
-			ProviderID: providerID,
-			ModelID:    modelID,
-		}, true
+		if !hasMode {
+			agent := strings.TrimSpace(info.Agent)
+			if agent != "" {
+				modeID = agent
+				hasMode = true
+			}
+		}
+		if hasModel && hasMode {
+			break
+		}
 	}
 
-	return openCodeModelRef{}, false
+	return model, modeID, hasModel, hasMode
 }
 
 func (c *OpenCodeClient) setSessionModel(sessionID string, model openCodeModelRef) {
@@ -831,6 +938,28 @@ func (c *OpenCodeClient) getSessionModel(sessionID string) (openCodeModelRef, bo
 		return openCodeModelRef{}, false
 	}
 	return model, ok
+}
+
+func (c *OpenCodeClient) setSessionMode(sessionID, modeID string) {
+	modeID = strings.TrimSpace(modeID)
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
+	if modeID == "" {
+		delete(c.sessionMode, sessionID)
+		return
+	}
+	c.sessionMode[sessionID] = modeID
+}
+
+func (c *OpenCodeClient) getSessionMode(sessionID string) (string, bool) {
+	c.sessionMu.RLock()
+	modeID, ok := c.sessionMode[sessionID]
+	c.sessionMu.RUnlock()
+	modeID = strings.TrimSpace(modeID)
+	if !ok || modeID == "" {
+		return "", false
+	}
+	return modeID, true
 }
 
 func (c *OpenCodeClient) emitSessionUpdate(params acp.SessionUpdateParams) {
@@ -1073,6 +1202,20 @@ func containsModel(models []acp.SessionModel, modelID string) bool {
 	return false
 }
 
+func resolveModeID(modes []acp.SessionMode, requested string) string {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return ""
+	}
+	for _, mode := range modes {
+		id := strings.TrimSpace(mode.ID)
+		if strings.EqualFold(id, requested) {
+			return id
+		}
+	}
+	return ""
+}
+
 func resolveModelID(input string, providers []openCodeProvider) (openCodeModelRef, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -1274,6 +1417,7 @@ type openCodeMessageWithParts struct {
 
 type openCodePromptMessageInfo struct {
 	Role  string `json:"role"`
+	Agent string `json:"agent"`
 	Model struct {
 		ProviderID string `json:"providerID"`
 		ModelID    string `json:"modelID"`
@@ -1347,6 +1491,13 @@ type openCodeModel struct {
 type openCodeProvidersResponse struct {
 	Providers []openCodeProvider `json:"providers"`
 	Default   map[string]string  `json:"default"`
+}
+
+type openCodeAgent struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Mode        string `json:"mode"`
+	Hidden      bool   `json:"hidden"`
 }
 
 type openCodeProviderListResponse struct {
