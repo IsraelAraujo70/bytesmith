@@ -1,4 +1,4 @@
-export namespace main {
+export namespace backend {
 	
 	export class AgentInfo {
 	    name: string;
@@ -56,6 +56,22 @@ export namespace main {
 	        this.displayName = source["displayName"];
 	        this.sessions = source["sessions"];
 	        this.integrator = source["integrator"];
+	    }
+	}
+	export class EmbeddedTerminalInfo {
+	    id: string;
+	    cwd: string;
+	    shell: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EmbeddedTerminalInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.cwd = source["cwd"];
+	        this.shell = source["shell"];
 	    }
 	}
 	export class FileEntry {

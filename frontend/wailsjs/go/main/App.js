@@ -6,8 +6,16 @@ export function CancelPrompt(arg1, arg2) {
   return window['go']['main']['App']['CancelPrompt'](arg1, arg2);
 }
 
+export function CloseEmbeddedTerminal(arg1) {
+  return window['go']['main']['App']['CloseEmbeddedTerminal'](arg1);
+}
+
 export function ConnectAgent(arg1, arg2) {
   return window['go']['main']['App']['ConnectAgent'](arg1, arg2);
+}
+
+export function CreateEmbeddedTerminal(arg1) {
+  return window['go']['main']['App']['CreateEmbeddedTerminal'](arg1);
 }
 
 export function DisconnectAgent(arg1) {
@@ -62,6 +70,10 @@ export function NewSession(arg1, arg2) {
   return window['go']['main']['App']['NewSession'](arg1, arg2);
 }
 
+export function ResizeEmbeddedTerminal(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResizeEmbeddedTerminal'](arg1, arg2, arg3);
+}
+
 export function RespondPermission(arg1, arg2, arg3) {
   return window['go']['main']['App']['RespondPermission'](arg1, arg2, arg3);
 }
@@ -96,4 +108,16 @@ export function SetSessionMode(arg1, arg2, arg3) {
 
 export function SetSessionModel(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetSessionModel'](arg1, arg2, arg3);
+}
+
+export function Shutdown(arg1) {
+  return window['go']['main']['App']['Shutdown'](arg1);
+}
+
+export function Startup(arg1) {
+  return window['go']['main']['App']['Startup'](arg1);
+}
+
+export function WriteEmbeddedTerminal(arg1, arg2) {
+  return window['go']['main']['App']['WriteEmbeddedTerminal'](arg1, arg2);
 }
