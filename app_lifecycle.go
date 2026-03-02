@@ -29,6 +29,22 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) domReady(ctx context.Context) {
 	apply := func() {
 		wailsRuntime.WindowUnfullscreen(ctx)
+		// Wayland can retain stale geometry hints; keep max size effectively unset.
+		wailsRuntime.WindowSetMaxSize(ctx, 16384, 16384)
+
+		if screens, err := wailsRuntime.ScreenGetAll(ctx); err == nil {
+			for _, screen := range screens {
+				if screen.IsCurrent || screen.IsPrimary {
+					width := screen.Size.Width
+					height := screen.Size.Height
+					if width > 0 && height > 0 {
+						wailsRuntime.WindowSetSize(ctx, width, height)
+					}
+					break
+				}
+			}
+		}
+
 		wailsRuntime.WindowMaximise(ctx)
 	}
 
