@@ -4,9 +4,9 @@
 
 ## What is ByteSmith?
 
-ByteSmith is a standalone desktop application that connects to any [ACP](https://agentclientprotocol.com)-compatible coding agent. Think of it as ChatGPT desktop, but for coding agents — without needing a full IDE.
+ByteSmith is a standalone desktop application focused on OpenCode and Codex App Server. Think of it as ChatGPT desktop, but for coding agents — without needing a full IDE.
 
-It speaks the **Agent Client Protocol (ACP)**, a standard wire protocol (JSON-RPC 2.0 over stdio) that any compliant agent can implement. Install ByteSmith once and connect to OpenCode or Codex App Server.
+It supports OpenCode via local server mode (`opencode serve`) and Codex via `codex app-server`.
 
 Built with [Wails v2](https://wails.io) (Go backend + React/TypeScript frontend). Binary size is ~9.7 MB.
 
@@ -30,11 +30,9 @@ Built with [Wails v2](https://wails.io) (Go backend + React/TypeScript frontend)
 
 ## Supported Agents
 
-Any agent that implements the [Agent Client Protocol](https://agentclientprotocol.com) works with ByteSmith.
-
 | Agent | Command | Website |
 |-------|---------|---------|
-| OpenCode | `opencode acp` | [opencode.ai](https://opencode.ai) |
+| OpenCode | `opencode serve` | [opencode.ai](https://opencode.ai) |
 | Codex App Server | `codex app-server` | [github.com/openai/codex](https://github.com/openai/codex) |
 
 ## Quick Start
@@ -103,13 +101,13 @@ The Vite dev server provides hot reload for frontend changes. A dev server also 
 │  │ Provider │ │ Provider  │ │                 │ │
 │  └──────────┘ └───────────┘ └─────────────────┘ │
 ├──────────────────────────────────────────────────┤
-│        stdio (JSON-RPC 2.0) ← ACP Protocol      │
+│  OpenCode HTTP/SSE runtime + Codex stdio runtime │
 ├──────────────────────────────────────────────────┤
-│        Agent Process (opencode, codex, etc.)      │
+│      opencode serve + codex app-server process   │
 └──────────────────────────────────────────────────┘
 ```
 
-- **Go backend**: ACP client (JSON-RPC 2.0 over stdio), agent process manager, file system provider, terminal provider, session store, agent discovery.
+- **Go backend**: OpenCode server runtime + Codex app-server runtime, agent process manager, file system provider, terminal provider, session store, agent discovery.
 - **React frontend**: Chat UI, tool call cards with status tracking, permission dialogs, agent picker, slash command autocomplete.
 - **Communication**: Wails bindings for request/response calls (Go ↔ JS) and Wails runtime events for streaming data from agents to the UI.
 
@@ -162,16 +160,11 @@ bytesmith/
     └── windows/                # Windows build assets
 ```
 
-## How ACP Works
+## Runtime Model
 
-The **Agent Client Protocol (ACP)** is a standard protocol for communication between client applications and AI coding agents. It is to coding agents what LSP is to language servers.
-
-- **Transport**: JSON-RPC 2.0 over stdio (the client spawns the agent as a child process)
-- **Flow**: The client sends user messages to the agent, which responds with text, tool calls, or permission requests
-- **Tools**: Agents request tool execution (file read/write, shell commands, etc.) and the client decides whether to approve or deny each action
-- **Streaming**: Agents stream partial responses as they generate them
-
-Learn more at [agentclientprotocol.com](https://agentclientprotocol.com).
+- **OpenCode**: ByteSmith talks to `opencode serve` over HTTP/SSE on localhost.
+- **Codex App Server**: ByteSmith talks to `codex app-server` over stdio JSON-RPC.
+- **Flow**: The client sends user prompts, streams updates, tracks tool calls, and handles permission decisions.
 
 ## Configuration
 
@@ -183,7 +176,7 @@ ByteSmith stores its configuration at `~/.config/bytesmith/config.json`.
     {
       "name": "opencode",
       "command": "opencode",
-      "args": ["acp"],
+      "args": [],
       "enabled": true
     },
     {

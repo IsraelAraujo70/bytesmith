@@ -56,7 +56,7 @@ func ConfigPath() string {
 	return filepath.Join(dir, "bytesmith", "config.json")
 }
 
-// DefaultConfig returns a Config populated with well-known ACP agents and
+// DefaultConfig returns a Config populated with supported runtimes and
 // sensible default settings.
 func DefaultConfig() *Config {
 	return &Config{
@@ -65,8 +65,8 @@ func DefaultConfig() *Config {
 				Name:        "opencode",
 				DisplayName: "OpenCode",
 				Command:     "opencode",
-				Args:        []string{"acp"},
-				Description: "OpenCode ACP agent",
+				Args:        []string{},
+				Description: "OpenCode local server",
 				AutoDetect:  true,
 			},
 			{

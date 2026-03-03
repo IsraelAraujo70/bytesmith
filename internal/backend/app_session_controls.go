@@ -43,10 +43,13 @@ func (a *App) SetSessionModel(connectionID, sessionID, modelID string) error {
 		return err
 	}
 
+	resolvedModelID := modelID
+
 	a.sessionModelsMu.Lock()
 	info, ok := a.sessionModels[sessionID]
 	if ok {
-		info.CurrentModelID = modelID
+		resolvedModelID = resolveCanonicalModelID(info.Models, modelID)
+		info.CurrentModelID = resolvedModelID
 		a.sessionModels[sessionID] = info
 	}
 	a.sessionModelsMu.Unlock()
@@ -55,7 +58,7 @@ func (a *App) SetSessionModel(connectionID, sessionID, modelID string) error {
 		wailsRuntime.EventsEmit(a.ctx, "agent:models", map[string]interface{}{
 			"connectionId":   connectionID,
 			"sessionId":      sessionID,
-			"currentModelId": modelID,
+			"currentModelId": resolvedModelID,
 			"models":         info.Models,
 		})
 	}
@@ -175,6 +178,32 @@ func resolveSessionModes(integratorID string, state *acp.SessionModesState) (Ses
 	}
 
 	return SessionModesInfo{}, false
+}
+
+func resolveCanonicalModelID(models []SessionModelInfo, requested string) string {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return requested
+	}
+	if strings.Contains(requested, "/") {
+		return requested
+	}
+
+	suffix := "/" + requested
+	matches := make([]string, 0, 1)
+	for _, model := range models {
+		id := strings.TrimSpace(model.ModelID)
+		if id == requested {
+			return id
+		}
+		if strings.HasSuffix(id, suffix) {
+			matches = append(matches, id)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0]
+	}
+	return requested
 }
 
 func (a *App) emitSessionModes(connectionID, sessionID string, info SessionModesInfo) {
