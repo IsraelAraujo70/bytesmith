@@ -7,6 +7,7 @@ import type { QuestionItem } from '../../types';
 
 const USER_NOTE_PREFIX = 'user_note: ';
 const OTHER_OPTION_LABEL = 'None of the above';
+const SECRET_MASK = '********';
 
 function questionLabel(question: QuestionItem, index: number): string {
   const header = question.header.trim();
@@ -25,6 +26,17 @@ function renderAnswerValue(values: string[]): string {
     )
     .filter((value) => value.trim().length > 0);
   return readable.join(', ');
+}
+
+function renderReviewValue(question: QuestionItem, values: string[]): string {
+  const resolved = renderAnswerValue(values);
+  if (!resolved) {
+    return '';
+  }
+  if (question.isSecret) {
+    return SECRET_MASK;
+  }
+  return resolved;
 }
 
 export function QuestionDialog() {
@@ -78,23 +90,7 @@ export function QuestionDialog() {
     if (explicit && explicit.length > 0) {
       return explicit;
     }
-
-    const item = questions[index];
-    if (!item) {
-      return [];
-    }
-
-    const draft = (custom[index] ?? '').trim();
-    if (!draft) {
-      return [];
-    }
-
-    const hasOptions = (item.options?.length ?? 0) > 0;
-    if (hasOptions && item.isOther) {
-      return [OTHER_OPTION_LABEL, `${USER_NOTE_PREFIX}${draft}`];
-    }
-
-    return [`${USER_NOTE_PREFIX}${draft}`];
+    return [];
   };
 
   const setAnswerAt = (index: number, next: string[]) => {
@@ -392,7 +388,7 @@ export function QuestionDialog() {
                           <div className="text-xs font-medium">Type your own answer</div>
                           {!editing && (custom[tab] ?? '').trim() && (
                             <div className="text-[10px] text-[var(--text-muted)] mt-0.5 break-all">
-                              {(custom[tab] ?? '').trim()}
+                              {question?.isSecret ? SECRET_MASK : (custom[tab] ?? '').trim()}
                             </div>
                           )}
                         </div>
@@ -464,7 +460,7 @@ export function QuestionDialog() {
               <div className="text-xs font-medium text-[var(--text-primary)]">Review answers</div>
               {questions.map((q, index) => {
                 const values = answerForQuestion(index);
-                const resolved = renderAnswerValue(values);
+                const resolved = renderReviewValue(q, values);
                 const answered = resolved.length > 0;
                 return (
                   <div
