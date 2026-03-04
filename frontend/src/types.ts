@@ -109,6 +109,29 @@ export interface PermissionOption {
   kind: string;
 }
 
+export interface QuestionRequest {
+  requestId: string;
+  connectionId: string;
+  sessionId: string;
+  toolCallId: string;
+  questions: QuestionItem[];
+}
+
+export interface QuestionItem {
+  id: string;
+  header: string;
+  question: string;
+  multiple: boolean;
+  isOther: boolean;
+  isSecret: boolean;
+  options: QuestionOption[];
+}
+
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
 export interface AvailableCommand {
   name: string;
   description: string;

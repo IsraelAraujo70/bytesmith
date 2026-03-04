@@ -6,6 +6,7 @@ import { ToolCallCard } from './ToolCallCard';
 import { PlanView } from './PlanView';
 import { PromptInput } from './PromptInput';
 import { PermissionDialog } from './PermissionDialog';
+import { QuestionDialog } from './QuestionDialog';
 import type { TimelineItem } from '../../types';
 
 export function ChatPanel() {
@@ -76,6 +77,9 @@ export function ChatPanel() {
 
       {/* Permission modal */}
       <PermissionDialog />
+
+      {/* Explicit user-input question modal */}
+      <QuestionDialog />
     </div>
   );
 }

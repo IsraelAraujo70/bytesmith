@@ -31,6 +31,9 @@ func (a *App) wireConnection(conn *agent.Connection) {
 	conn.Client.OnRequestPermission(func(params acp.RequestPermissionParams) acp.RequestPermissionResult {
 		return a.handlePermissionRequest(connID, params)
 	})
+	conn.Client.OnRequestUserInput(func(params acp.ToolRequestUserInputParams) acp.ToolRequestUserInputResponse {
+		return a.handleQuestionRequest(connID, params)
+	})
 
 	// --- FS handlers ---
 	conn.Client.OnFSReadTextFile(func(params acp.FSReadTextFileParams) (*acp.FSReadTextFileResult, error) {

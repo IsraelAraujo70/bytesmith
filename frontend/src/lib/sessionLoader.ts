@@ -1,5 +1,6 @@
 import {
   getSessionHistory,
+  getSessionAccessModes,
   getSessionModels,
   getSessionModes,
   listConnections,
@@ -23,6 +24,7 @@ interface OpenSessionStoreActions {
   setToolCalls: (toolCalls: ToolCallInfo[]) => void;
   setSessionModels: (models: { modelId: string; name: string }[], currentModelId: string) => void;
   setSessionModes: (modes: { modeId: string; name: string }[], currentModeId: string) => void;
+  setSessionAccessModes: (modes: { modeId: string; name: string }[], currentModeId: string) => void;
   visitSession: (session: SessionRef) => void;
 }
 
@@ -72,10 +74,11 @@ export async function openSessionView(
     store.setActiveSession(resolved);
     store.clearSession();
 
-    const [history, modelsInfo, modesInfo] = await Promise.all([
+    const [history, modelsInfo, modesInfo, accessModesInfo] = await Promise.all([
       getSessionHistory(target.sessionID),
       getSessionModels(target.sessionID),
       getSessionModes(target.sessionID),
+      getSessionAccessModes(target.sessionID),
     ]);
 
     if (history) {
@@ -89,6 +92,10 @@ export async function openSessionView(
 
     if (modesInfo) {
       store.setSessionModes(modesInfo.modes, modesInfo.currentModeId);
+    }
+
+    if (accessModesInfo) {
+      store.setSessionAccessModes(accessModesInfo.modes, accessModesInfo.currentModeId);
     }
 
     store.setSessionReadOnly(!resumed);

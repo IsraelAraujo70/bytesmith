@@ -3,9 +3,17 @@ package acp
 // InitializeParams is sent by the client as the first message after starting
 // the agent process. It advertises the client's capabilities and identity.
 type InitializeParams struct {
-	ProtocolVersion    int                `json:"protocolVersion"`
-	ClientCapabilities ClientCapabilities `json:"clientCapabilities"`
-	ClientInfo         ImplementationInfo `json:"clientInfo"`
+	ProtocolVersion    int                     `json:"protocolVersion"`
+	ClientCapabilities ClientCapabilities      `json:"clientCapabilities"`
+	ClientInfo         ImplementationInfo      `json:"clientInfo"`
+	Capabilities       *InitializeCapabilities `json:"capabilities,omitempty"`
+}
+
+// InitializeCapabilities declares optional protocol extensions supported by
+// the client.
+type InitializeCapabilities struct {
+	ExperimentalAPI           bool     `json:"experimentalApi,omitempty"`
+	OptOutNotificationMethods []string `json:"optOutNotificationMethods,omitempty"`
 }
 
 // InitializeResult is the agent's response to the initialize request.

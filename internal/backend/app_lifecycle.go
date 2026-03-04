@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 
+	"bytesmith/internal/acp"
 	"bytesmith/internal/agent"
 	bfs "bytesmith/internal/fs"
 	"bytesmith/internal/session"
@@ -18,9 +19,11 @@ func NewApp() *App {
 	return &App{
 		pendingPermissions:     make(map[string]chan string),
 		pendingPermissionOrder: make(map[string][]string),
+		pendingQuestions:       make(map[string]chan acp.ToolRequestUserInputResponse),
 		activePrompts:          make(map[string]context.CancelFunc),
 		sessionModels:          make(map[string]SessionModelsInfo),
 		sessionModes:           make(map[string]SessionModesInfo),
+		sessionAccessModes:     make(map[string]SessionModesInfo),
 		streamMessages:         make(map[string]*streamMessage),
 	}
 }

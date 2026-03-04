@@ -29,6 +29,7 @@ export function StatusBar() {
     setToolCalls,
     setSessionModels,
     setSessionModes,
+    setSessionAccessModes,
     visitSession,
     goBackSession,
     goForwardSession,
@@ -64,6 +65,7 @@ export function StatusBar() {
     setToolCalls,
     setSessionModels,
     setSessionModes,
+    setSessionAccessModes,
     visitSession,
   };
 

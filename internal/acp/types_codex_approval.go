@@ -107,6 +107,7 @@ type ToolRequestUserInputQuestion struct {
 	ID       string                       `json:"id"`
 	Header   string                       `json:"header"`
 	Question string                       `json:"question"`
+	Multiple bool                         `json:"multiple"`
 	IsOther  bool                         `json:"isOther"`
 	IsSecret bool                         `json:"isSecret"`
 	Options  []ToolRequestUserInputOption `json:"options"`

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"bytesmith/internal/acp"
 	"bytesmith/internal/agent"
 	bfs "bytesmith/internal/fs"
 	"bytesmith/internal/session"
@@ -132,6 +133,33 @@ type PermissionOptionInfo struct {
 	Kind     string `json:"kind"`
 }
 
+// QuestionRequestInfo is emitted to the frontend when an agent asks explicit
+// user input via item/tool/requestUserInput.
+type QuestionRequestInfo struct {
+	RequestID    string         `json:"requestId"`
+	ConnectionID string         `json:"connectionId"`
+	SessionID    string         `json:"sessionId"`
+	ToolCallID   string         `json:"toolCallId"`
+	Questions    []QuestionInfo `json:"questions"`
+}
+
+// QuestionInfo is one user-input question requested by the agent.
+type QuestionInfo struct {
+	ID       string               `json:"id"`
+	Header   string               `json:"header"`
+	Question string               `json:"question"`
+	Multiple bool                 `json:"multiple"`
+	IsOther  bool                 `json:"isOther"`
+	IsSecret bool                 `json:"isSecret"`
+	Options  []QuestionOptionInfo `json:"options"`
+}
+
+// QuestionOptionInfo is one selectable option for a question.
+type QuestionOptionInfo struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
 // SessionModelInfo is one available model option for a session.
 type SessionModelInfo struct {
 	ModelID string `json:"modelId"`
@@ -204,11 +232,21 @@ type App struct {
 	sessionModes   map[string]SessionModesInfo
 	sessionModesMu sync.RWMutex
 
+	// sessionAccessModes stores execution access policy options per session
+	// (currently used by codex compatibility sessions).
+	sessionAccessModes   map[string]SessionModesInfo
+	sessionAccessModesMu sync.RWMutex
+
 	// pendingPermissions stores channels keyed by requestID.
 	// pendingPermissionOrder stores request IDs FIFO by session+toolCall.
 	pendingPermissions     map[string]chan string
 	pendingPermissionOrder map[string][]string
 	pendingPermissionsMu   sync.Mutex
+
+	// pendingQuestions stores channels keyed by requestID for
+	// item/tool/requestUserInput interactions.
+	pendingQuestions   map[string]chan acp.ToolRequestUserInputResponse
+	pendingQuestionsMu sync.Mutex
 
 	// activePrompts tracks running prompt goroutines so CancelPrompt can
 	// both cancel the context and send the ACP cancel notification.

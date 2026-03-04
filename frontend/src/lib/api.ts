@@ -171,6 +171,19 @@ export async function getSessionModes(
   }
 }
 
+export async function getSessionAccessModes(
+  sessionID: string,
+): Promise<SessionModesInfo | null> {
+  try {
+    return await callWails<SessionModesInfo | null>(
+      "GetSessionAccessModes",
+      sessionID,
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function setSessionModel(
   connectionID: string,
   sessionID: string,
@@ -185,6 +198,14 @@ export async function setSessionMode(
   modeID: string,
 ): Promise<void> {
   await callWails<void>("SetSessionMode", connectionID, sessionID, modeID);
+}
+
+export async function setSessionAccessMode(
+  connectionID: string,
+  sessionID: string,
+  modeID: string,
+): Promise<void> {
+  await callWails<void>("SetSessionAccessMode", connectionID, sessionID, modeID);
 }
 
 export async function setSessionConfigOption(
@@ -227,6 +248,17 @@ export async function respondPermission(
   optionID: string,
 ): Promise<void> {
   await callWails<void>("RespondPermission", sessionID, toolCallID, optionID);
+}
+
+export async function respondQuestion(
+  requestID: string,
+  answers: Record<string, string[]>,
+): Promise<void> {
+  await callWails<void>("RespondQuestion", requestID, answers);
+}
+
+export async function rejectQuestion(requestID: string): Promise<void> {
+  await callWails<void>("RejectQuestion", requestID);
 }
 
 // --- Directory Picker ---

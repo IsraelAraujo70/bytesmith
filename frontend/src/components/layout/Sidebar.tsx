@@ -42,6 +42,7 @@ export function Sidebar() {
     setToolCalls,
     setSessionModels,
     setSessionModes,
+    setSessionAccessModes,
     visitSession,
     setLoading,
     setError,
@@ -64,6 +65,7 @@ export function Sidebar() {
     setToolCalls,
     setSessionModels,
     setSessionModes,
+    setSessionAccessModes,
     visitSession,
   };
 
