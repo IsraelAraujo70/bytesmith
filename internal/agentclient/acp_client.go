@@ -64,6 +64,10 @@ func (c *ACPClient) SetMode(ctx context.Context, sessionID, mode string) error {
 	return c.client.SetMode(ctx, sessionID, mode)
 }
 
+func (c *ACPClient) SetAccessMode(ctx context.Context, sessionID, mode string) error {
+	return c.client.SetAccessMode(ctx, sessionID, mode)
+}
+
 func (c *ACPClient) SetModel(ctx context.Context, sessionID, modelID string) error {
 	return c.client.SetModel(ctx, sessionID, modelID)
 }
@@ -78,6 +82,10 @@ func (c *ACPClient) OnSessionUpdate(handler func(acp.SessionUpdateParams)) {
 
 func (c *ACPClient) OnRequestPermission(handler func(acp.RequestPermissionParams) acp.RequestPermissionResult) {
 	c.client.OnRequestPermission(handler)
+}
+
+func (c *ACPClient) OnRequestUserInput(handler func(acp.ToolRequestUserInputParams) acp.ToolRequestUserInputResponse) {
+	c.client.OnRequestUserInput(handler)
 }
 
 func (c *ACPClient) OnFSReadTextFile(handler func(acp.FSReadTextFileParams) (*acp.FSReadTextFileResult, error)) {

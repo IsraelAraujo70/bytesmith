@@ -12,6 +12,7 @@ import type {
   AgentModesEvent,
   MessageKind,
   PermissionRequest,
+  QuestionRequest,
   UITerminalOutputEvent,
   UITerminalExitEvent,
 } from '../types';
@@ -35,7 +36,9 @@ export function useWailsEvents() {
     setCommands,
     setSessionModels,
     setSessionModes,
+    setSessionAccessModes,
     addPermissionRequest,
+    addQuestionRequest,
     appendTerminalOutput,
     markTerminalExited,
     setSessionLoading,
@@ -133,9 +136,25 @@ export function useWailsEvents() {
       }
     });
 
+    // Session access modes
+    EventsOn('agent:access-modes', (data: AgentModesEvent) => {
+      if (
+        !activeSession ||
+        (data.connectionId === activeSession.connectionID &&
+          data.sessionId === activeSession.sessionID)
+      ) {
+        setSessionAccessModes(data.modes, data.currentModeId);
+      }
+    });
+
     // Permission request
     EventsOn('agent:permission', (data: PermissionRequest) => {
       addPermissionRequest(data);
+    });
+
+    // Explicit user-input question request
+    EventsOn('agent:question', (data: QuestionRequest) => {
+      addQuestionRequest(data);
     });
 
     // Prompt done
@@ -172,7 +191,9 @@ export function useWailsEvents() {
       EventsOff('agent:commands');
       EventsOff('agent:models');
       EventsOff('agent:modes');
+      EventsOff('agent:access-modes');
       EventsOff('agent:permission');
+      EventsOff('agent:question');
       EventsOff('agent:prompt-done');
       EventsOff('agent:error');
       EventsOff('ui:terminal-output');
@@ -188,7 +209,9 @@ export function useWailsEvents() {
     setCommands,
     setSessionModels,
     setSessionModes,
+    setSessionAccessModes,
     addPermissionRequest,
+    addQuestionRequest,
     appendTerminalOutput,
     markTerminalExited,
     setSessionLoading,

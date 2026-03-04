@@ -97,7 +97,7 @@ func (a *App) SetSessionMode(connectionID, sessionID, modeID string) error {
 	a.sessionModesMu.Lock()
 	info, ok := a.sessionModes[sessionID]
 	if !ok && conn.IntegratorID == "codex" {
-		info = codexFallbackModes()
+		info = codexFallbackWorkModes()
 		ok = true
 	}
 	if ok {
@@ -126,6 +126,66 @@ func (a *App) SetSessionMode(connectionID, sessionID, modeID string) error {
 	return nil
 }
 
+// GetSessionAccessModes returns execution-access mode options for a session.
+func (a *App) GetSessionAccessModes(sessionID string) *SessionModesInfo {
+	a.sessionAccessModesMu.RLock()
+	defer a.sessionAccessModesMu.RUnlock()
+
+	info, ok := a.sessionAccessModes[sessionID]
+	if !ok {
+		return nil
+	}
+
+	copyModes := make([]SessionModeInfo, len(info.Modes))
+	copy(copyModes, info.Modes)
+
+	result := info
+	result.Modes = copyModes
+	return &result
+}
+
+// SetSessionAccessMode updates execution-access mode for a session.
+func (a *App) SetSessionAccessMode(connectionID, sessionID, modeID string) error {
+	conn := a.manager.GetConnection(connectionID)
+	if conn == nil {
+		return fmt.Errorf("connection %q not found", connectionID)
+	}
+	if err := conn.Client.SetAccessMode(context.Background(), sessionID, modeID); err != nil {
+		return err
+	}
+
+	a.sessionAccessModesMu.Lock()
+	info, ok := a.sessionAccessModes[sessionID]
+	if !ok && conn.IntegratorID == "codex" {
+		info = codexFallbackAccessModes()
+		ok = true
+	}
+	if ok {
+		found := false
+		for _, mode := range info.Modes {
+			if mode.ModeID == modeID {
+				found = true
+				break
+			}
+		}
+		if !found && modeID != "" {
+			info.Modes = append(info.Modes, SessionModeInfo{
+				ModeID: modeID,
+				Name:   modeID,
+			})
+		}
+		info.CurrentModeID = modeID
+		a.sessionAccessModes[sessionID] = info
+	}
+	a.sessionAccessModesMu.Unlock()
+
+	if ok {
+		a.emitSessionAccessModes(connectionID, sessionID, info)
+	}
+
+	return nil
+}
+
 // SetSessionConfigOption sets a generic session config option.
 func (a *App) SetSessionConfigOption(connectionID, sessionID, configID, value string) error {
 	conn := a.manager.GetConnection(connectionID)
@@ -135,13 +195,23 @@ func (a *App) SetSessionConfigOption(connectionID, sessionID, configID, value st
 	return conn.Client.SetConfigOption(context.Background(), sessionID, configID, value)
 }
 
-func codexFallbackModes() SessionModesInfo {
+func codexFallbackWorkModes() SessionModesInfo {
+	return SessionModesInfo{
+		CurrentModeID: "build",
+		Modes: []SessionModeInfo{
+			{ModeID: "build", Name: "Build"},
+			{ModeID: "plan", Name: "Plan"},
+		},
+	}
+}
+
+func codexFallbackAccessModes() SessionModesInfo {
 	return SessionModesInfo{
 		CurrentModeID: "restricted",
 		Modes: []SessionModeInfo{
 			{ModeID: "full-access", Name: "Full Access"},
 			{ModeID: "restricted", Name: "Restricted"},
-			{ModeID: "plan", Name: "Plan"},
+			{ModeID: "read-only", Name: "Read Only"},
 		},
 	}
 }
@@ -174,7 +244,15 @@ func resolveSessionModes(integratorID string, state *acp.SessionModesState) (Ses
 	}
 
 	if integratorID == "codex" {
-		return codexFallbackModes(), true
+		return codexFallbackWorkModes(), true
+	}
+
+	return SessionModesInfo{}, false
+}
+
+func resolveSessionAccessModes(integratorID string) (SessionModesInfo, bool) {
+	if integratorID == "codex" {
+		return codexFallbackAccessModes(), true
 	}
 
 	return SessionModesInfo{}, false
@@ -208,6 +286,15 @@ func resolveCanonicalModelID(models []SessionModelInfo, requested string) string
 
 func (a *App) emitSessionModes(connectionID, sessionID string, info SessionModesInfo) {
 	wailsRuntime.EventsEmit(a.ctx, "agent:modes", map[string]interface{}{
+		"connectionId":  connectionID,
+		"sessionId":     sessionID,
+		"currentModeId": info.CurrentModeID,
+		"modes":         info.Modes,
+	})
+}
+
+func (a *App) emitSessionAccessModes(connectionID, sessionID string, info SessionModesInfo) {
+	wailsRuntime.EventsEmit(a.ctx, "agent:access-modes", map[string]interface{}{
 		"connectionId":  connectionID,
 		"sessionId":     sessionID,
 		"currentModeId": info.CurrentModeID,

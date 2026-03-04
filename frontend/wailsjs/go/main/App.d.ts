@@ -13,6 +13,8 @@ export function CreateEmbeddedTerminal(arg1:string):Promise<backend.EmbeddedTerm
 
 export function DisconnectAgent(arg1:string):Promise<void>;
 
+export function GetSessionAccessModes(arg1:string):Promise<backend.SessionModesInfo>;
+
 export function GetSessionHistory(arg1:string):Promise<backend.SessionHistoryInfo>;
 
 export function GetSessionModels(arg1:string):Promise<backend.SessionModelsInfo>;
@@ -37,9 +39,13 @@ export function LoadRemoteSession(arg1:string,arg2:string,arg3:string):Promise<v
 
 export function NewSession(arg1:string,arg2:string):Promise<string>;
 
+export function RejectQuestion(arg1:string):Promise<void>;
+
 export function ResizeEmbeddedTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function RespondPermission(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function RespondQuestion(arg1:string,arg2:Record<string, Array<string>>):Promise<void>;
 
 export function ResumeHistoricalSession(arg1:string):Promise<backend.ResumeHistoricalResult>;
 
@@ -50,6 +56,8 @@ export function SaveSettings(arg1:backend.AppSettingsInfo):Promise<void>;
 export function SelectDirectory():Promise<string>;
 
 export function SendPrompt(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SetSessionAccessMode(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SetSessionConfigOption(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 

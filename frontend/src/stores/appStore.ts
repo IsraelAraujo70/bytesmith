@@ -9,6 +9,7 @@ import type {
   SessionModeInfo,
   PlanEntry,
   PermissionRequest,
+  QuestionRequest,
   AvailableCommand,
   EmbeddedTerminalSession,
   EmbeddedTerminalTab,
@@ -161,10 +162,20 @@ interface AppState {
   currentModeId: string;
   setSessionModes: (modes: SessionModeInfo[], currentModeId: string) => void;
 
+  // Session access modes
+  accessModes: SessionModeInfo[];
+  currentAccessModeId: string;
+  setSessionAccessModes: (modes: SessionModeInfo[], currentModeId: string) => void;
+
   // Permission requests
   permissionRequests: PermissionRequest[];
   addPermissionRequest: (req: PermissionRequest) => void;
   removePermissionRequest: (requestId: string) => void;
+
+  // Explicit question requests
+  questionRequests: QuestionRequest[];
+  addQuestionRequest: (req: QuestionRequest) => void;
+  removeQuestionRequest: (requestId: string) => void;
 
   // Model picker modal
   modelPickerOpen: boolean;
@@ -453,6 +464,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentModeId: '',
   setSessionModes: (modes, currentModeId) => set({ modes, currentModeId }),
 
+  // Session access modes
+  accessModes: [],
+  currentAccessModeId: '',
+  setSessionAccessModes: (accessModes, currentAccessModeId) =>
+    set({ accessModes, currentAccessModeId }),
+
   // Permission requests
   permissionRequests: [],
   addPermissionRequest: (req) =>
@@ -464,6 +481,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       permissionRequests: s.permissionRequests.filter(
         (r) => r.requestId !== requestId
       ),
+    })),
+
+  // Question requests
+  questionRequests: [],
+  addQuestionRequest: (req) =>
+    set((s) => ({
+      questionRequests: [...s.questionRequests, req],
+    })),
+  removeQuestionRequest: (requestId) =>
+    set((s) => ({
+      questionRequests: s.questionRequests.filter((r) => r.requestId !== requestId),
     })),
 
   // Sidebar
@@ -508,6 +536,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentModelId: '',
       modes: [],
       currentModeId: '',
+      accessModes: [],
+      currentAccessModeId: '',
       sessionReadOnly: false,
       loading: false,
       error: null,

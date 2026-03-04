@@ -62,6 +62,21 @@ func (a *App) LoadRemoteSession(connectionID, sessionID, cwd string) error {
 
 	a.sessions.Create(sessionID, conn.Agent.Name, connectionID, cwd)
 	appendSessionIfMissing(conn, sessionID)
+
+	if modes, ok := resolveSessionModes(conn.IntegratorID, nil); ok {
+		a.sessionModesMu.Lock()
+		a.sessionModes[sessionID] = modes
+		a.sessionModesMu.Unlock()
+		a.emitSessionModes(connectionID, sessionID, modes)
+	}
+
+	if accessModes, ok := resolveSessionAccessModes(conn.IntegratorID); ok {
+		a.sessionAccessModesMu.Lock()
+		a.sessionAccessModes[sessionID] = accessModes
+		a.sessionAccessModesMu.Unlock()
+		a.emitSessionAccessModes(connectionID, sessionID, accessModes)
+	}
+
 	return nil
 }
 
@@ -111,6 +126,13 @@ func (a *App) ResumeSession(connectionID, sessionID, cwd string) error {
 			a.sessionModesMu.Unlock()
 			a.emitSessionModes(connectionID, sessionID, modes)
 		}
+	}
+
+	if accessModes, ok := resolveSessionAccessModes(conn.IntegratorID); ok {
+		a.sessionAccessModesMu.Lock()
+		a.sessionAccessModes[sessionID] = accessModes
+		a.sessionAccessModesMu.Unlock()
+		a.emitSessionAccessModes(connectionID, sessionID, accessModes)
 	}
 
 	return nil

@@ -19,11 +19,13 @@ type Client interface {
 	Prompt(ctx context.Context, sessionID string, prompt []acp.ContentBlock) (*acp.SessionPromptResult, error)
 	Cancel(sessionID string) error
 	SetMode(ctx context.Context, sessionID, mode string) error
+	SetAccessMode(ctx context.Context, sessionID, mode string) error
 	SetModel(ctx context.Context, sessionID, modelID string) error
 	SetConfigOption(ctx context.Context, sessionID, configID, value string) error
 
 	OnSessionUpdate(handler func(acp.SessionUpdateParams))
 	OnRequestPermission(handler func(acp.RequestPermissionParams) acp.RequestPermissionResult)
+	OnRequestUserInput(handler func(acp.ToolRequestUserInputParams) acp.ToolRequestUserInputResponse)
 	OnFSReadTextFile(handler func(acp.FSReadTextFileParams) (*acp.FSReadTextFileResult, error))
 	OnFSWriteTextFile(handler func(acp.FSWriteTextFileParams) error)
 	OnTerminalCreate(handler func(acp.TerminalCreateParams) (*acp.TerminalCreateResult, error))

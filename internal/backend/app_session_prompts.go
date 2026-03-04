@@ -67,6 +67,13 @@ func (a *App) NewSession(connectionID, cwd string) (string, error) {
 		a.emitSessionModes(connectionID, sessionID, modes)
 	}
 
+	if accessModes, ok := resolveSessionAccessModes(conn.IntegratorID); ok {
+		a.sessionAccessModesMu.Lock()
+		a.sessionAccessModes[sessionID] = accessModes
+		a.sessionAccessModesMu.Unlock()
+		a.emitSessionAccessModes(connectionID, sessionID, accessModes)
+	}
+
 	return sessionID, nil
 }
 

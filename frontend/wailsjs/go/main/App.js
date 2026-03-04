@@ -22,6 +22,10 @@ export function DisconnectAgent(arg1) {
   return window['go']['main']['App']['DisconnectAgent'](arg1);
 }
 
+export function GetSessionAccessModes(arg1) {
+  return window['go']['main']['App']['GetSessionAccessModes'](arg1);
+}
+
 export function GetSessionHistory(arg1) {
   return window['go']['main']['App']['GetSessionHistory'](arg1);
 }
@@ -70,12 +74,20 @@ export function NewSession(arg1, arg2) {
   return window['go']['main']['App']['NewSession'](arg1, arg2);
 }
 
+export function RejectQuestion(arg1) {
+  return window['go']['main']['App']['RejectQuestion'](arg1);
+}
+
 export function ResizeEmbeddedTerminal(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResizeEmbeddedTerminal'](arg1, arg2, arg3);
 }
 
 export function RespondPermission(arg1, arg2, arg3) {
   return window['go']['main']['App']['RespondPermission'](arg1, arg2, arg3);
+}
+
+export function RespondQuestion(arg1, arg2) {
+  return window['go']['main']['App']['RespondQuestion'](arg1, arg2);
 }
 
 export function ResumeHistoricalSession(arg1) {
@@ -96,6 +108,10 @@ export function SelectDirectory() {
 
 export function SendPrompt(arg1, arg2, arg3) {
   return window['go']['main']['App']['SendPrompt'](arg1, arg2, arg3);
+}
+
+export function SetSessionAccessMode(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetSessionAccessMode'](arg1, arg2, arg3);
 }
 
 export function SetSessionConfigOption(arg1, arg2, arg3, arg4) {

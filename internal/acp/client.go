@@ -43,6 +43,7 @@ type Client struct {
 	// --- agent-to-client request handlers ---
 
 	onRequestPermission func(RequestPermissionParams) RequestPermissionResult
+	onRequestUserInput  func(ToolRequestUserInputParams) ToolRequestUserInputResponse
 	onFSReadTextFile    func(FSReadTextFileParams) (*FSReadTextFileResult, error)
 	onFSWriteTextFile   func(FSWriteTextFileParams) error
 	onTerminalCreate    func(TerminalCreateParams) (*TerminalCreateResult, error)
@@ -63,6 +64,8 @@ type codexSessionState struct {
 	ModelID           string
 	ReasoningEffort   string
 	Summary           string
+	CollaborationMode string
+	AccessMode        string
 	ApprovalPolicy    string
 	SandboxPolicyType string
 	PromptDone        chan string
@@ -109,6 +112,9 @@ func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 			Title:   "ByteSmith",
 			Version: "0.1.0",
 		},
+		Capabilities: &InitializeCapabilities{
+			ExperimentalAPI: true,
+		},
 	}
 
 	raw, err := c.call(ctx, MethodInitialize, params)
@@ -151,29 +157,34 @@ func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []MCPSer
 }
 
 func (c *Client) newSessionCodex(ctx context.Context, cwd string) (*SessionNewResult, error) {
-	raw, err := c.call(ctx, "newConversation", map[string]any{})
-	if err != nil {
-		return nil, fmt.Errorf("codex/newConversation: %w", err)
-	}
-
-	var conversation struct {
-		ConversationID  string `json:"conversationId"`
-		Model           string `json:"model"`
-		ReasoningEffort string `json:"reasoningEffort"`
-		RolloutPath     string `json:"rolloutPath"`
-	}
-	if err := json.Unmarshal(raw, &conversation); err != nil {
-		return nil, fmt.Errorf("codex/newConversation: unmarshal result: %w", err)
-	}
-	if conversation.ConversationID == "" {
-		return nil, fmt.Errorf("codex/newConversation: empty conversationId")
-	}
-
-	_, err = c.call(ctx, "addConversationListener", map[string]any{
-		"conversationId": conversation.ConversationID,
+	raw, err := c.call(ctx, "thread/start", map[string]any{
+		"cwd":            cwd,
+		"approvalPolicy": "on-request",
+		"sandbox":        "workspace-write",
+		"config": map[string]any{
+			"features.default_mode_request_user_input": true,
+		},
+		"experimentalRawEvents":  false,
+		"persistExtendedHistory": true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("codex/addConversationListener: %w", err)
+		return nil, fmt.Errorf("codex/thread/start: %w", err)
+	}
+
+	var threadStart struct {
+		Thread struct {
+			ID  string `json:"id"`
+			CWD string `json:"cwd"`
+		} `json:"thread"`
+		Model           string `json:"model"`
+		ReasoningEffort string `json:"reasoningEffort"`
+		CWD             string `json:"cwd"`
+	}
+	if err := json.Unmarshal(raw, &threadStart); err != nil {
+		return nil, fmt.Errorf("codex/thread/start: unmarshal result: %w", err)
+	}
+	if threadStart.Thread.ID == "" {
+		return nil, fmt.Errorf("codex/thread/start: empty thread id")
 	}
 
 	models := []SessionModel{}
@@ -205,24 +216,34 @@ func (c *Client) newSessionCodex(ctx context.Context, cwd string) (*SessionNewRe
 		}
 	}
 
-	if conversation.Model != "" && !sessionModelExists(models, conversation.Model) {
-		models = append(models, SessionModel{ModelID: conversation.Model, Name: conversation.Model})
+	if threadStart.Model != "" && !sessionModelExists(models, threadStart.Model) {
+		models = append(models, SessionModel{ModelID: threadStart.Model, Name: threadStart.Model})
+	}
+
+	resolvedCWD := strings.TrimSpace(threadStart.CWD)
+	if resolvedCWD == "" {
+		resolvedCWD = strings.TrimSpace(threadStart.Thread.CWD)
+	}
+	if resolvedCWD == "" {
+		resolvedCWD = cwd
 	}
 
 	result := &SessionNewResult{
-		SessionID: conversation.ConversationID,
+		SessionID: threadStart.Thread.ID,
 		Models: &SessionModelsState{
-			CurrentModelID:  conversation.Model,
+			CurrentModelID:  threadStart.Model,
 			AvailableModels: models,
 		},
 	}
 
 	c.codexMu.Lock()
-	c.codexSessions[conversation.ConversationID] = &codexSessionState{
-		CWD:               cwd,
-		ModelID:           conversation.Model,
-		ReasoningEffort:   conversation.ReasoningEffort,
+	c.codexSessions[threadStart.Thread.ID] = &codexSessionState{
+		CWD:               resolvedCWD,
+		ModelID:           threadStart.Model,
+		ReasoningEffort:   threadStart.ReasoningEffort,
 		Summary:           "none",
+		CollaborationMode: "default",
+		AccessMode:        "restricted",
 		ApprovalPolicy:    "on-request",
 		SandboxPolicyType: "workspace-write",
 	}
@@ -355,7 +376,7 @@ func (c *Client) promptCodex(ctx context.Context, sessionID string, prompt []Con
 	}
 
 	if len(textParts) == 0 {
-		return nil, fmt.Errorf("codex/sendUserTurn: empty text prompt")
+		return nil, fmt.Errorf("codex/turn: empty text prompt")
 	}
 	text := strings.Join(textParts, "\n\n")
 
@@ -363,7 +384,7 @@ func (c *Client) promptCodex(ctx context.Context, sessionID string, prompt []Con
 	state, ok := c.codexSessions[sessionID]
 	if !ok {
 		c.codexMu.Unlock()
-		return nil, fmt.Errorf("codex/sendUserTurn: session %q not found", sessionID)
+		return nil, fmt.Errorf("codex/turn: session %q not found", sessionID)
 	}
 
 	doneCh := make(chan string, 1)
@@ -372,6 +393,7 @@ func (c *Client) promptCodex(ctx context.Context, sessionID string, prompt []Con
 	modelID := state.ModelID
 	reasoning := state.ReasoningEffort
 	summary := state.Summary
+	collaborationMode := state.CollaborationMode
 	approval := state.ApprovalPolicy
 	sandboxType := state.SandboxPolicyType
 	cwd := state.CWD
@@ -386,37 +408,17 @@ func (c *Client) promptCodex(ctx context.Context, sessionID string, prompt []Con
 	if sandboxType == "" {
 		sandboxType = "workspace-write"
 	}
-
-	params := map[string]any{
-		"conversationId": sessionID,
-		"cwd":            cwd,
-		"items": []map[string]any{{
-			"type": "text",
-			"data": map[string]any{
-				"text": text,
-			},
-		}},
-		"approvalPolicy": approval,
-		"sandboxPolicy": map[string]any{
-			"type": sandboxType,
-		},
-		"summary": summary,
-	}
-	if modelID != "" {
-		params["model"] = modelID
-	}
-	if reasoning != "" {
-		params["reasoningEffort"] = reasoning
+	if collaborationMode == "" {
+		collaborationMode = "default"
 	}
 
-	_, err := c.call(ctx, "sendUserTurn", params)
-	if err != nil {
+	if err := c.startCodexTurn(ctx, sessionID, text, cwd, modelID, reasoning, summary, collaborationMode, approval, sandboxType); err != nil {
 		c.codexMu.Lock()
 		if current, exists := c.codexSessions[sessionID]; exists && current.PromptDone == doneCh {
 			current.PromptDone = nil
 		}
 		c.codexMu.Unlock()
-		return nil, fmt.Errorf("codex/sendUserTurn: %w", err)
+		return nil, fmt.Errorf("codex/turn/start: %w", err)
 	}
 
 	select {
@@ -437,6 +439,85 @@ func (c *Client) promptCodex(ctx context.Context, sessionID string, prompt []Con
 		}
 		c.codexMu.Unlock()
 		return nil, ctx.Err()
+	}
+}
+
+func (c *Client) startCodexTurn(
+	ctx context.Context,
+	sessionID string,
+	text string,
+	cwd string,
+	modelID string,
+	reasoning string,
+	summary string,
+	collaborationMode string,
+	approval string,
+	sandboxType string,
+) error {
+	params := map[string]any{
+		"threadId": sessionID,
+		"input": []map[string]any{{
+			"type":          "text",
+			"text":          text,
+			"text_elements": []any{},
+		}},
+		"cwd":            cwd,
+		"approvalPolicy": approval,
+		"sandboxPolicy":  codexV2SandboxPolicy(sandboxType),
+		"summary":        summary,
+	}
+
+	if modelID != "" {
+		params["model"] = modelID
+	}
+	if reasoning != "" {
+		params["effort"] = reasoning
+	}
+
+	if mode, ok := codexCollaborationMode(collaborationMode); ok && modelID != "" {
+		settings := map[string]any{
+			"model":                  modelID,
+			"reasoning_effort":       nil,
+			"developer_instructions": nil,
+		}
+		if reasoning != "" {
+			settings["reasoning_effort"] = reasoning
+		}
+		params["collaborationMode"] = map[string]any{
+			"mode":     mode,
+			"settings": settings,
+		}
+	}
+
+	_, err := c.call(ctx, "turn/start", params)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func codexV2SandboxPolicy(sandboxType string) map[string]any {
+	switch strings.ToLower(strings.TrimSpace(sandboxType)) {
+	case "danger-full-access":
+		return map[string]any{"type": "dangerFullAccess"}
+	case "read-only":
+		return map[string]any{
+			"type": "readOnly",
+			"access": map[string]any{
+				"type": "fullAccess",
+			},
+		}
+	default:
+		return map[string]any{
+			"type":          "workspaceWrite",
+			"writableRoots": []string{},
+			"readOnlyAccess": map[string]any{
+				"type": "fullAccess",
+			},
+			"networkAccess":       false,
+			"excludeTmpdirEnvVar": false,
+			"excludeSlashTmp":     false,
+		}
 	}
 }
 
@@ -461,7 +542,7 @@ func (c *Client) Cancel(sessionID string) error {
 // SetMode asks the agent to switch operating modes.
 func (c *Client) SetMode(ctx context.Context, sessionID, mode string) error {
 	if c.isCodexSession(sessionID) {
-		approvalPolicy, sandboxPolicy, ok := codexPoliciesForMode(mode)
+		collaborationMode, ok := codexCollaborationMode(mode)
 		if !ok {
 			return fmt.Errorf("codex/set_mode: unsupported mode %q", mode)
 		}
@@ -472,8 +553,7 @@ func (c *Client) SetMode(ctx context.Context, sessionID, mode string) error {
 			c.codexMu.Unlock()
 			return fmt.Errorf("codex/set_mode: session %q not found", sessionID)
 		}
-		state.ApprovalPolicy = approvalPolicy
-		state.SandboxPolicyType = sandboxPolicy
+		state.CollaborationMode = collaborationMode
 		c.codexMu.Unlock()
 		return nil
 	}
@@ -500,16 +580,51 @@ func (c *Client) SetMode(ctx context.Context, sessionID, mode string) error {
 	return fmt.Errorf("session/set_mode: %w (legacy fallback: %v)", err, legacyErr)
 }
 
-func codexPoliciesForMode(mode string) (approvalPolicy, sandboxPolicy string, ok bool) {
+// SetAccessMode asks the agent to switch execution access policy.
+func (c *Client) SetAccessMode(ctx context.Context, sessionID, mode string) error {
+	if c.isCodexSession(sessionID) {
+		accessMode, approvalPolicy, sandboxPolicy, ok := codexPoliciesForAccessMode(mode)
+		if !ok {
+			return fmt.Errorf("codex/set_access_mode: unsupported mode %q", mode)
+		}
+
+		c.codexMu.Lock()
+		state, exists := c.codexSessions[sessionID]
+		if !exists {
+			c.codexMu.Unlock()
+			return fmt.Errorf("codex/set_access_mode: session %q not found", sessionID)
+		}
+		state.AccessMode = accessMode
+		state.ApprovalPolicy = approvalPolicy
+		state.SandboxPolicyType = sandboxPolicy
+		c.codexMu.Unlock()
+		return nil
+	}
+
+	return c.SetMode(ctx, sessionID, mode)
+}
+
+func codexCollaborationMode(mode string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "build", "default", "code", "auto-builder", "autobuilder":
+		return "default", true
+	case "plan", "planning":
+		return "plan", true
+	default:
+		return "", false
+	}
+}
+
+func codexPoliciesForAccessMode(mode string) (accessMode, approvalPolicy, sandboxPolicy string, ok bool) {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "full-access", "full_access", "full":
-		return "never", "danger-full-access", true
+		return "full-access", "never", "danger-full-access", true
 	case "restricted", "safe", "workspace", "workspace-write":
-		return "on-request", "workspace-write", true
-	case "plan", "planning", "read-only", "readonly":
-		return "on-request", "read-only", true
+		return "restricted", "on-request", "workspace-write", true
+	case "read-only", "readonly", "read_only":
+		return "read-only", "on-request", "read-only", true
 	default:
-		return "", "", false
+		return "", "", "", false
 	}
 }
 
@@ -624,6 +739,13 @@ func (c *Client) OnSessionUpdate(handler func(SessionUpdateParams)) {
 func (c *Client) OnRequestPermission(handler func(RequestPermissionParams) RequestPermissionResult) {
 	c.handlerMu.Lock()
 	c.onRequestPermission = handler
+	c.handlerMu.Unlock()
+}
+
+// OnRequestUserInput registers a handler for item/tool/requestUserInput requests.
+func (c *Client) OnRequestUserInput(handler func(ToolRequestUserInputParams) ToolRequestUserInputResponse) {
+	c.handlerMu.Lock()
+	c.onRequestUserInput = handler
 	c.handlerMu.Unlock()
 }
 
@@ -892,6 +1014,30 @@ func (c *Client) handleNotification(msg JSONRPCMessage) {
 			c.signalCodexPromptDone(params.ThreadID, params.StopReason)
 		}
 
+	case "turn/completed":
+		var params struct {
+			ThreadID string `json:"threadId"`
+			Turn     struct {
+				Status string `json:"status"`
+			} `json:"turn"`
+		}
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			log.Printf("acp: failed to unmarshal codex turn/completed params: %v", err)
+			return
+		}
+		if params.ThreadID == "" {
+			return
+		}
+
+		stopReason := "end_turn"
+		switch strings.ToLower(strings.TrimSpace(params.Turn.Status)) {
+		case "failed":
+			stopReason = "error"
+		case "interrupted":
+			stopReason = "cancelled"
+		}
+		c.signalCodexPromptDone(params.ThreadID, stopReason)
+
 	default:
 		if strings.HasPrefix(msg.Method, "codex/") ||
 			strings.HasPrefix(msg.Method, "item/") ||
@@ -1010,13 +1156,17 @@ func (c *Client) handleRequest(msg JSONRPCMessage) {
 		result = toResult(permissionSelection(res))
 
 	case MethodItemToolRequestUserInput:
-		if c.onRequestPermission == nil {
-			c.sendError(msg.ID, ErrCodeMethodNotFound, "no handler for "+msg.Method)
-			return
-		}
 		var params ToolRequestUserInputParams
 		if err := json.Unmarshal(msg.Params, &params); err != nil {
 			c.sendError(msg.ID, ErrCodeInvalidParams, "invalid params: "+err.Error())
+			return
+		}
+		if c.onRequestUserInput != nil {
+			result = c.onRequestUserInput(params)
+			break
+		}
+		if c.onRequestPermission == nil {
+			c.sendError(msg.ID, ErrCodeMethodNotFound, "no handler for "+msg.Method)
 			return
 		}
 		req, toResult := buildV2ToolUserInputBridge(params)

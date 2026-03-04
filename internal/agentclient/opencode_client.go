@@ -36,6 +36,7 @@ type OpenCodeClient struct {
 
 	handlerMu           sync.RWMutex
 	onRequestPermission func(acp.RequestPermissionParams) acp.RequestPermissionResult
+	onRequestUserInput  func(acp.ToolRequestUserInputParams) acp.ToolRequestUserInputResponse
 	onFSReadTextFile    func(acp.FSReadTextFileParams) (*acp.FSReadTextFileResult, error)
 	onFSWriteTextFile   func(acp.FSWriteTextFileParams) error
 	onTerminalCreate    func(acp.TerminalCreateParams) (*acp.TerminalCreateResult, error)
@@ -287,6 +288,10 @@ func (c *OpenCodeClient) SetMode(ctx context.Context, sessionID, mode string) er
 	return nil
 }
 
+func (c *OpenCodeClient) SetAccessMode(_ context.Context, _ string, _ string) error {
+	return fmt.Errorf("session access mode unsupported for opencode")
+}
+
 func (c *OpenCodeClient) SetModel(ctx context.Context, sessionID, modelID string) error {
 	cwd := c.sessionDirectory(sessionID)
 	providers, err := c.fetchProviders(ctx, cwd)
@@ -318,6 +323,12 @@ func (c *OpenCodeClient) OnSessionUpdate(handler func(acp.SessionUpdateParams)) 
 func (c *OpenCodeClient) OnRequestPermission(handler func(acp.RequestPermissionParams) acp.RequestPermissionResult) {
 	c.handlerMu.Lock()
 	c.onRequestPermission = handler
+	c.handlerMu.Unlock()
+}
+
+func (c *OpenCodeClient) OnRequestUserInput(handler func(acp.ToolRequestUserInputParams) acp.ToolRequestUserInputResponse) {
+	c.handlerMu.Lock()
+	c.onRequestUserInput = handler
 	c.handlerMu.Unlock()
 }
 
@@ -463,6 +474,8 @@ func (c *OpenCodeClient) handleEvent(raw string) {
 		c.handlePermissionAsked(event.Properties)
 	case "permission.updated":
 		c.handlePermissionUpdated(event.Properties)
+	case "question.asked":
+		c.handleQuestionAsked(event.Properties)
 	}
 }
 
@@ -716,6 +729,117 @@ func (c *OpenCodeClient) handlePermission(sessionID, permissionID, toolCallID, t
 	_ = c.requestJSON(ctx, http.MethodPost, path, directoryQuery(cwd), map[string]string{
 		"response": response,
 	}, nil)
+}
+
+func (c *OpenCodeClient) handleQuestionAsked(raw json.RawMessage) {
+	var asked openCodeQuestionAsked
+	if err := json.Unmarshal(raw, &asked); err != nil {
+		log.Printf("opencode: invalid question.asked: %v", err)
+		return
+	}
+
+	requestID := strings.TrimSpace(asked.ID)
+	sessionID := strings.TrimSpace(asked.SessionID)
+	if requestID == "" || sessionID == "" || !c.sessionTracked(sessionID) {
+		return
+	}
+
+	c.handlerMu.RLock()
+	handler := c.onRequestUserInput
+	c.handlerMu.RUnlock()
+
+	if handler == nil {
+		if err := c.rejectQuestion(sessionID, requestID); err != nil {
+			log.Printf("opencode: reject question %s failed: %v", requestID, err)
+		}
+		return
+	}
+
+	params := acp.ToolRequestUserInputParams{
+		ThreadID:  sessionID,
+		ItemID:    nonEmpty(asked.Tool.CallID, requestID),
+		Questions: make([]acp.ToolRequestUserInputQuestion, 0, len(asked.Questions)),
+	}
+	questionIDs := make([]string, 0, len(asked.Questions))
+
+	for i, question := range asked.Questions {
+		questionID := strings.TrimSpace(question.ID)
+		if questionID == "" {
+			questionID = fmt.Sprintf("q_%d", i+1)
+		}
+		questionIDs = append(questionIDs, questionID)
+
+		allowCustom := true
+		if question.Custom != nil {
+			allowCustom = *question.Custom
+		}
+
+		options := make([]acp.ToolRequestUserInputOption, 0, len(question.Options))
+		for _, option := range question.Options {
+			options = append(options, acp.ToolRequestUserInputOption{
+				Label:       option.Label,
+				Description: option.Description,
+			})
+		}
+
+		params.Questions = append(params.Questions, acp.ToolRequestUserInputQuestion{
+			ID:       questionID,
+			Header:   question.Header,
+			Question: question.Question,
+			Multiple: question.Multiple,
+			IsOther:  allowCustom,
+			IsSecret: false,
+			Options:  options,
+		})
+	}
+
+	result := handler(params)
+	answers := make([][]string, len(questionIDs))
+	hasAnswer := false
+	for i, questionID := range questionIDs {
+		if result.Answers == nil {
+			continue
+		}
+		answer, ok := result.Answers[questionID]
+		if !ok {
+			continue
+		}
+		if len(answer.Answers) > 0 {
+			hasAnswer = true
+		}
+		answers[i] = append([]string(nil), answer.Answers...)
+	}
+
+	if !hasAnswer {
+		if err := c.rejectQuestion(sessionID, requestID); err != nil {
+			log.Printf("opencode: reject question %s failed: %v", requestID, err)
+		}
+		return
+	}
+
+	if err := c.replyQuestion(sessionID, requestID, answers); err != nil {
+		log.Printf("opencode: reply question %s failed: %v", requestID, err)
+	}
+}
+
+func (c *OpenCodeClient) replyQuestion(sessionID, requestID string, answers [][]string) error {
+	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
+	defer cancel()
+
+	cwd := c.sessionDirectory(sessionID)
+	path := fmt.Sprintf("/question/%s/reply", url.PathEscape(requestID))
+	return c.requestJSON(ctx, http.MethodPost, path, directoryQuery(cwd), map[string]any{
+		"answers": answers,
+	}, nil)
+}
+
+func (c *OpenCodeClient) rejectQuestion(sessionID, requestID string) error {
+	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
+	defer cancel()
+
+	cwd := c.sessionDirectory(sessionID)
+	path := fmt.Sprintf("/question/%s/reject", url.PathEscape(requestID))
+	return c.requestJSON(ctx, http.MethodPost, path, directoryQuery(cwd), map[string]any{}, nil)
 }
 
 func (c *OpenCodeClient) runCommand(ctx context.Context, sessionID, cwd, command, arguments string) error {
@@ -1467,6 +1591,30 @@ type openCodePermissionUpdated struct {
 	SessionID string `json:"sessionID"`
 	Title     string `json:"title"`
 	Type      string `json:"type"`
+}
+
+type openCodeQuestionAsked struct {
+	ID        string                   `json:"id"`
+	SessionID string                   `json:"sessionID"`
+	Questions []openCodeQuestionPrompt `json:"questions"`
+	Tool      struct {
+		MessageID string `json:"messageID"`
+		CallID    string `json:"callID"`
+	} `json:"tool"`
+}
+
+type openCodeQuestionPrompt struct {
+	ID       string                   `json:"id"`
+	Question string                   `json:"question"`
+	Header   string                   `json:"header"`
+	Options  []openCodeQuestionOption `json:"options"`
+	Multiple bool                     `json:"multiple"`
+	Custom   *bool                    `json:"custom,omitempty"`
+}
+
+type openCodeQuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
 }
 
 type openCodeSession struct {
